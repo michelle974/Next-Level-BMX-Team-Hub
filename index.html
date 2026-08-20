@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TEAM HUB">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Next Level BMX — Team Hub</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+  :root {
+    --green: #38f100;
+    --orange: #ff5500;
+    --black: #000000;
+    --white: #ffffff;
+    --tile: #f4f4f4;
+    --line: #dcdcdc;
+    --text: #111111;
+    --muted: #666666;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: var(--black);
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--text); font-size: 17px;
+  }
+  #app {
+    max-width: 560px; margin: 0 auto; height: 100%;
+    display: flex; flex-direction: column; background: var(--black);
+  }
+
+  /* ---------- fixed header ---------- */
+  header {
+    background: var(--black) url('/header-accent.png') center / 100% auto no-repeat;
+    flex-shrink: 0; padding-top: env(safe-area-inset-top);
+    position: relative; overflow: hidden;
+  }
+  .head-inner {
+    display: grid; grid-template-columns: 68px 1fr 68px;
+    align-items: center; padding: 8px 12px 2px;
+  }
+  .head-logo { display: flex; justify-content: center; }
+  .head-logo img { width: 100%; max-width: 300px; height: auto; display: block; }
+  .head-btn {
+    background: none; border: none; color: var(--green);
+    font-size: 17px; font-weight: 700; padding: 12px 2px;
+    cursor: pointer; font-family: inherit;
+  }
+  .head-btn.right { text-align: right; }
+  .head-btn:disabled { opacity: 0; pointer-events: none; }
+  .head-name {
+    display: block; width: 100%; max-width: 200px; margin: 0 auto;
+    background: none; border: none; color: var(--green);
+    font-size: 14px; font-weight: 700; text-align: center;
+    padding: 0 8px 12px; cursor: pointer; font-family: inherit;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .head-name:disabled { opacity: 0; pointer-events: none; }
+
+  /* ---------- home hero logo ---------- */
+  .hero-section {
+    position: relative; overflow: hidden; background: var(--black);
+    padding: 4px 12px 18px; display: flex; justify-content: center; align-items: center;
+  }
+  .hero-accent {
+    position: absolute; inset: 0;
+    background: url('/header-accent.png') center / 100% auto no-repeat;
+    pointer-events: none;
+  }
+  .hero-logo {
+    position: relative; z-index: 1;
+    width: 78%; max-width: 280px; height: auto; display: block;
+  }
+  /* slim topbar replaces full header on home */
+  .topbar {
+    background: var(--black); display: flex; justify-content: flex-end;
+    align-items: center; padding: 6px 16px 2px;
+    padding-top: calc(6px + env(safe-area-inset-top));
+  }
+  .topbar-btn {
+    background: none; border: none; color: var(--green);
+    font-size: 14px; font-weight: 700; padding: 3px 0; cursor: pointer; font-family: inherit;
+  }
+  .topbar-btn:disabled { opacity: 0; pointer-events: none; }
+
+  /* ---------- scrolling body ---------- */
+  main {
+    background: var(--white); flex: 1; overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 22px 18px 40px;
+  }
+  main.home-view { padding: 0; }
+  .home-content { padding: 22px 18px 40px; }
+  main.flush { padding: 0; }
+  .footer-band {
+    background: var(--black); height: 30px; flex-shrink: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  h2 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 16px; margin: 0 0 22px; line-height: 1.4; }
+
+  .center-wrap {
+    min-height: 100%; display: flex; flex-direction: column;
+    justify-content: center; padding: 20px 0 40px;
+  }
+  .center-wrap h2 { font-size: 30px; text-align: center; }
+  .center-wrap > .sub { text-align: center; font-size: 17px; }
+
+  /* ---------- banner ---------- */
+  .banner {
+    display: flex; align-items: center; gap: 14px;
+    border-radius: 16px; padding: 16px 18px; margin-bottom: 24px;
+    cursor: pointer; border: none; width: 100%; text-align: left; font-family: inherit;
+  }
+  .banner.forms { background: var(--orange); }
+  .banner.pay { background: var(--orange); }
+  .banner.verify { background: #333; }
+  .banner .bicon {
+    width: 50px; height: 50px; background: #fff; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    font-size: 25px;
+  }
+  .banner .t1 { color: #fff; font-size: 18px; font-weight: 800; }
+  .banner .t2 { color: #fff; font-size: 14px; opacity: .95; margin-top: 2px; }
+
+  /* ---------- tiles ---------- */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px 10px; }
+  .tile {
+    display: flex; flex-direction: column; align-items: center; gap: 11px;
+    background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
+  }
+  .tile:active { transform: scale(.94); }
+  .ticon {
+    width: 80px; height: 80px; background: var(--tile); border-radius: 20px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .ticon img { width: 76%; height: 76%; object-fit: contain; }
+  .ticon svg { fill: none; stroke-width: 1.5; width: 38px; height: 38px; }
+  .tile span {
+    font-size: 13.5px; font-weight: 700; text-align: center;
+    color: var(--text); line-height: 1.25;
+  }
+  /* Orange filter: targets #ff5500 from any base color */
+  .ticon-orange img { filter: brightness(0) saturate(100%) invert(40%) sepia(90%) saturate(800%) hue-rotate(345deg) brightness(105%); }
+  .ticon-orange svg { stroke: var(--orange); }
+  /* Green filter: targets #38f100 from any base color */
+  .ticon-green img { filter: brightness(0) saturate(100%) invert(55%) sepia(90%) saturate(500%) hue-rotate(65deg) brightness(110%); }
+  .ticon-green svg { stroke: var(--green); }
+
+  /* ---------- inputs ---------- */
+  label { display: block; font-size: 15px; font-weight: 700; margin: 20px 0 7px; }
+  input, select, textarea {
+    width: 100%; padding: 15px; font-size: 17px; font-family: inherit;
+    border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--text);
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--green); }
+  .btn {
+    width: 100%; padding: 17px; margin-top: 26px; font-size: 18px; font-weight: 800;
+    background: var(--black); color: var(--green); border: none; border-radius: 14px;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn:active { opacity: .85; }
+  .btn.alt { background: var(--tile); color: var(--text); }
+  .btn.orange { background: var(--orange); color: #fff; }
+  .btn.slim { padding: 13px; font-size: 15px; margin-top: 14px; }
+  .btn.tiny { width: auto; padding: 10px 16px; font-size: 14px; margin: 0; }
+  .linkbtn {
+    background: none; border: none; color: var(--muted); font-size: 16px;
+    text-decoration: underline; cursor: pointer; margin-top: 20px;
+    width: 100%; font-family: inherit; padding: 10px;
+  }
+  .radio-row { display: flex; gap: 9px; margin-top: 8px; }
+  .radio-row button {
+    flex: 1; padding: 14px 4px; font-size: 14.5px; font-weight: 700; line-height: 1.2;
+    border: 2px solid var(--line); border-radius: 12px; background: #fff;
+    cursor: pointer; font-family: inherit; color: var(--text);
+  }
+  .radio-row button.on { background: var(--black); color: var(--green); border-color: var(--black); }
+
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 0; border-bottom: 1px solid var(--line); gap: 14px;
+  }
+  .toggle-row .tl { font-size: 16px; font-weight: 600; }
+  .toggle-row .tn { font-size: 13.5px; color: var(--muted); margin-top: 3px; }
+  .switch {
+    width: 54px; height: 32px; border-radius: 16px; background: #ccc;
+    border: none; position: relative; cursor: pointer; flex-shrink: 0;
+  }
+  .switch.on { background: var(--green); }
+  .switch::after {
+    content: ''; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px;
+    border-radius: 50%; background: #fff; transition: transform .15s;
+  }
+  .switch.on::after { transform: translateX(22px); }
+
+  /* ---------- cards ---------- */
+  .card {
+    border: 2px solid var(--line); border-radius: 14px; padding: 17px;
+    margin-bottom: 12px; background: #fff; cursor: pointer;
+  }
+  .card.flat { cursor: default; }
+  .card.done { border-color: var(--green); background: #f6fff2; }
+  .card .cname { font-size: 18px; font-weight: 700; }
+  .card .cmeta { font-size: 14.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .pill {
+    display: inline-block; font-size: 11.5px; font-weight: 800; padding: 4px 10px;
+    border-radius: 20px; margin-left: 8px; vertical-align: middle;
+  }
+  .pill.ok { background: #e4ffd9; color: #2a7000; }
+  .pill.wait { background: #fff0e0; color: #a34e00; }
+  .pill.grey { background: #eee; color: #666; }
+  .countbadge {
+    font-size: 15px; font-weight: 800; padding: 6px 12px; border-radius: 20px;
+    background: var(--orange); color: #fff; white-space: nowrap;
+  }
+  .countbadge.done { background: var(--green); color: #073d00; }
+
+  .kv {
+    display: flex; justify-content: space-between; padding: 15px 0;
+    border-bottom: 1px solid var(--line); font-size: 16.5px; gap: 14px;
+  }
+  .kv .k { color: var(--muted); flex-shrink: 0; }
+  .kv .v { font-weight: 600; text-align: right; word-break: break-word; }
+  .kv .v a { color: var(--text); text-decoration: none; border-bottom: 2px solid var(--green); }
+
+  .sechead {
+    font-size: 14px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); margin: 30px 0 12px;
+  }
+  .sechead.warn { color: var(--orange); }
+
+  .agreement {
+    max-height: 320px; overflow-y: auto; border: 2px solid var(--line);
+    border-radius: 12px; padding: 17px; font-size: 15px; line-height: 1.6;
+    background: #fafafa; margin-top: 10px;
+  }
+  .agreement h4 { margin: 18px 0 6px; font-size: 16px; }
+  .agreement h4:first-child { margin-top: 0; }
+  .agreement ul { margin: 6px 0; padding-left: 20px; }
+  .agreement li { margin-bottom: 6px; }
+
+  .msg { padding: 14px 16px; border-radius: 12px; font-size: 15.5px; margin-top: 18px; line-height: 1.45; }
+  .msg.err { background: #ffe8e8; color: #a00; }
+  .msg.ok { background: #e4ffd9; color: #2a7000; }
+  .msg.info { background: #f0f0f0; color: #444; }
+  .empty { text-align: center; color: var(--muted); font-size: 16.5px; padding: 50px 20px; line-height: 1.5; }
+  .spinner {
+    width: 30px; height: 30px; border: 3px solid var(--line); border-top-color: var(--green);
+    border-radius: 50%; animation: spin .7s linear infinite; margin: 60px auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* login email chips */
+  .email-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .email-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--tile); border: 1px solid var(--line); border-radius: 20px;
+    padding: 8px 12px; font-size: 14px; font-family: inherit; cursor: pointer;
+    color: var(--text); max-width: 100%;
+  }
+  .email-chip .chip-x {
+    color: var(--muted); font-size: 17px; line-height: 1; font-weight: 700;
+    padding: 0 2px;
+  }
+  .steps { font-size: 13.5px; color: var(--muted); font-weight: 800; letter-spacing: .05em; margin-bottom: 8px; }
+  .day-label {
+    font-size: 13.5px; font-weight: 800; color: var(--muted); letter-spacing: .04em;
+    text-transform: uppercase; margin: 22px 0 8px;
+  }
+  .day-label:first-of-type { margin-top: 4px; }
+  .evt-card {
+    border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+    cursor: pointer; color: #fff;
+  }
+  .evt-card .evt-title { font-size: 16.5px; font-weight: 800; }
+  .evt-card .evt-time { font-size: 13.5px; opacity: .92; margin-top: 3px; }
+  .evt-detail-band { height: 10px; border-radius: 6px; margin-bottom: 18px; }
+  .evt-desc { font-size: 15.5px; line-height: 1.5; color: var(--text); margin: 14px 0 4px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="appHeader">
+    <div class="head-inner">
+      <button class="head-btn" id="backBtn" onclick="goBack()">‹ Back</button>
+      <div class="head-logo"><img src="/logo.png" alt="Next Level BMX"></div>
+      <span></span>
+    </div>
+    <button class="head-name" id="menuBtn" onclick="go('profile')">Me</button>
+  </header>
+  <main id="view"><div class="spinner"></div></main>
+  <div class="footer-band"></div>
+</div>
+
+<script>
+/* ============ state ============ */
+const S = {
+  user: null, session: null, fields: {},
+  tiles: [], config: {}, agreementRaw: '',
+  riders: [], unlinked: [], riderIndex: [],
+  events: null, eventDetail: null, myRiders: null,
+  calEvents: null, calError: null, calSelectedId: null,
+  isAdmin: false, screen: 'loading', history: [],
+  viewRider: null, editing: null, linking: null,
+};
+
+const api = async (action, payload = {}) => {
+  const res = await fetch('/api/asana', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, gid: S.user?.gid, session: S.session, ...payload }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Something went wrong.');
+  return json;
+};
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+const save = () => localStorage.setItem('nlbmx_hub',
+  JSON.stringify({ gid: S.user?.gid, session: S.session }));
+const clearSave = () => localStorage.removeItem('nlbmx_hub');
+
+/* ---- formatting ---- */
+function fmtDate(iso) {
+  if (!iso) return '';
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  return `${m[2]}-${m[3]}-${m[1]}`;
+}
+function fmtDOB(iso) {
+  if (!iso) return '';
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+  return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+}
+function fmtRange(a, b) {
+  if (!a) return '';
+  if (!b || b === a) return fmtDate(a);
+  const x = String(a).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const y = String(b).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (x && y && x[1] === y[1] && x[2] === y[2]) return `${x[2]}-${x[3]}–${y[3]}-${x[1]}`;
+  return `${fmtDate(a)} – ${fmtDate(b)}`;
+}
+function evtLastDay(e) {
+  // Google's all-day "end" date is exclusive (the day AFTER the event actually ends).
+  if (!e.allDay) return new Date(e.end);
+  const d = new Date(e.end + 'T00:00:00');
+  d.setDate(d.getDate() - 1);
+  return d;
+}
+function evtIsMultiDay(e) {
+  if (!e.allDay) return false;
+  return evtLastDay(e).toDateString() !== new Date(e.start + 'T00:00:00').toDateString();
+}
+function evtGroupDate(e) {
+  // Which day the card sorts/groups under in the list.
+  const start = e.allDay ? new Date(e.start + 'T00:00:00') : new Date(e.start);
+  if (evtIsMultiDay(e) && start.getDay() === 5) { // Friday-start races group under Saturday
+    const d = new Date(start);
+    d.setDate(d.getDate() + 1);
+    return d;
+  }
+  return start;
+}
+/* ---- event colors (palette, keyword rules & overrides come from Asana) ---- */
+// Built-in fallback used only if Asana config hasn't loaded / is empty.
+const COLOR_FALLBACK = {
+  palette: { GREEN: '#38f100', ORANGE: '#ff5500', GREY: '#8a8a8a' },
+  keywords: { training: 'GREEN', state: 'ORANGE' },
+  overrides: [],
+  default: 'GREY',
+};
+function colorCfg() {
+  const c = S.config?.scheduleColors;
+  return (c && Object.keys(c.palette || {}).length) ? c : COLOR_FALLBACK;
+}
+function evtColor(e) {
+  const cfg = colorCfg();
+  const pal = cfg.palette || {};
+  const title = (e.title || '').toLowerCase();
+  const startISO = e.allDay ? e.start : new Date(e.start).toISOString().slice(0, 10);
+  // 1. exact override wins: match on date + title-substring
+  for (const ov of (cfg.overrides || [])) {
+    if (ov.date && ov.date !== startISO) continue;
+    if (ov.title && !title.includes(ov.title.toLowerCase())) continue;
+    if (pal[ov.code]) return pal[ov.code];
+  }
+  // 2. keyword rules
+  for (const [kw, code] of Object.entries(cfg.keywords || {})) {
+    if (title.includes(kw.toLowerCase()) && pal[code]) return pal[code];
+  }
+  // 3. default
+  return pal[cfg.default] || '#8a8a8a';
+}
+function fmtLocation(loc) {
+  if (!loc) return '';
+  const idx = loc.indexOf(',');
+  return idx === -1 ? loc : loc.slice(0, idx).trim();
+}
+function evtDayKey(e) {
+  return evtGroupDate(e).toDateString();
+}
+function evtDayLabel(e) {
+  return evtGroupDate(e).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function evtDateLong(e) {
+  const optLong = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
+  if (evtIsMultiDay(e)) {
+    const start = new Date(e.start + 'T00:00:00');
+    const last = evtLastDay(e);
+    return `${start.toLocaleDateString(undefined, optLong)} – ${last.toLocaleDateString(undefined, optLong)}`;
+  }
+  const d = e.allDay ? new Date(e.start + 'T00:00:00') : new Date(e.start);
+  return d.toLocaleDateString(undefined, optLong);
+}
+function evtTime(e) {
+  if (e.allDay) {
+    if (evtIsMultiDay(e)) {
+      const opt = { month: 'short', day: 'numeric' };
+      const start = new Date(e.start + 'T00:00:00');
+      const last = evtLastDay(e);
+      return `${start.toLocaleDateString(undefined, opt)} – ${last.toLocaleDateString(undefined, opt)}`;
+    }
+    return 'All day';
+  }
+  const opt = { hour: 'numeric', minute: '2-digit' };
+  return `${new Date(e.start).toLocaleTimeString(undefined, opt)} – ${new Date(e.end).toLocaleTimeString(undefined, opt)}`;
+}
+function fmtPhone(p) {
+  const d = String(p || '').replace(/\D/g, '');
+  if (d.length === 10) return `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
+  if (d.length === 11 && d[0] === '1') return `${d.slice(1,4)}-${d.slice(4,7)}-${d.slice(7)}`;
+  return p || '';
+}
+const telHref = p => 'tel:' + String(p || '').replace(/\D/g, '');
+const phoneLink = p => p ? `<a href="${telHref(p)}">${esc(fmtPhone(p))}</a>` : '';
+const mailLink = e => e ? `<a href="mailto:${esc(e)}">${esc(e)}</a>` : '';
+
+function age(dob) {
+  if (!dob) return '';
+  const b = new Date(dob); if (isNaN(b)) return '';
+  const t = new Date();
+  let a = t.getFullYear() - b.getFullYear();
+  const m = t.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) a--;
+  return a;
+}
+
+/* ---- icons ---- */
+const ICON_FILE = {
+  'Team Forms': 'team-forms', 'Schedule': 'schedule', 'Roster': 'roster',
+  'Training App': 'training-app', 'Chat': 'chat', 'Team Chat': 'chat',
+  'Sponsorship': 'sponsorship', 'Training Payments': 'payments', 'Pay Training': 'payments',
+  'Gear Ordering': 'gear-ordering', 'Photo Sharing': 'photos',
+  'Sign-Ups': 'sign-ups', 'Race Stats': 'race-stats',
+  'Files': 'files', 'Team Files': 'files', 'Socials': 'socials',
+};
+function tileIcon(t) {
+  if (t.icon && /^https?:/.test(t.icon)) return `<img src="${esc(t.icon)}" alt="">`;
+  const f = ICON_FILE[t.label];
+  if (f) return `<img src="/icons/${f}.png" alt="">`;
+  return `<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+}
+
+/* ---- external links ---- */
+// In standalone (home-screen) mode window.open leaves a dead blank tab with an X.
+// Assigning location.href hands off to the OS/native app and returns cleanly.
+const isStandalone = () =>
+  window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+function openExternal(url) {
+  if (isStandalone()) window.location.href = url;
+  else window.open(url, '_blank', 'noopener');
+}
+
+/* ============ nav ============ */
+function go(screen, push = true) {
+  if (push && S.screen !== screen) S.history.push(S.screen);
+  S.screen = screen;
+  render();
+}
+function goBack() { S.screen = S.history.pop() || 'home'; render(); }
+
+/* ============ boot ============ */
+async function boot() {
+  try {
+    const res = await fetch('/api/asana?action=bootstrap');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    S.tiles = data.tiles || [];
+    S.config = data.config || {};
+    S.agreementRaw = data.agreement || '';
+  } catch (e) {
+    document.getElementById('view').innerHTML =
+      `<div class="msg err">Couldn't reach the server.<br><small>${esc(e.message)}</small></div>`;
+    return;
+  }
+  const saved = JSON.parse(localStorage.getItem('nlbmx_hub') || 'null');
+  if (saved?.gid && saved?.session) {
+    try {
+      S.session = saved.session; S.user = { gid: saved.gid };
+      const me = await api('me');
+      S.user = me.user; S.fields = me.fields; S.isAdmin = me.user.isAdmin;
+      S.screen = 'home';
+      loadMyRidersQuietly();
+    } catch {
+      clearSave(); S.user = null; S.session = null; S.screen = 'auth';
+    }
+  } else S.screen = 'auth';
+  render();
+}
+
+// Home banner needs per-rider form/payment state.
+async function loadMyRidersQuietly() {
+  try {
+    const r = await api('myRiders');
+    S.myRiders = r.riders;
+    if (S.screen === 'home') render();
+  } catch {}
+}
+
+/* ============ render ============ */
+function render() {
+  const v = document.getElementById('view');
+  const header = document.getElementById('appHeader');
+  const isHome = S.screen === 'home';
+
+  if (isHome) {
+    // Home: hide standard header, show topbar + hero inside view
+    header.style.display = 'none';
+    const firstName = S.user ? (S.user.name || '').split(' ')[0] : '';
+    const heroHtml = `
+      <div class="topbar">
+        <button class="topbar-btn" ${!S.user ? 'disabled' : ''} onclick="go('profile')">${esc(firstName) || 'Me'}</button>
+      </div>
+      <div class="hero-section">
+        <div class="hero-accent"></div>
+        <img class="hero-logo" src="/logo.png" alt="Next Level BMX">
+      </div>
+      <div class="home-content">${(SCREENS.home)()}</div>`;
+    v.innerHTML = heroHtml;
+    v.classList.add('home-view');
+  } else {
+    // All other screens: show standard header
+    header.style.display = '';
+    v.classList.remove('home-view');
+    document.getElementById('backBtn').disabled = ['auth', 'loading'].includes(S.screen);
+    document.getElementById('menuBtn').disabled = ['auth', 'loading'].includes(S.screen);
+    document.getElementById('menuBtn').textContent = S.user
+      ? (S.user.name || 'Me').split(' ')[0]
+      : 'Me';
+    v.innerHTML = (SCREENS[S.screen] || SCREENS.home)();
+  }
+  v.scrollTop = 0;
+}
+
+function agreementHtml() {
+  if (!S.agreementRaw) return '<p>Agreement text has not been set yet.</p>';
+  const out = []; let inList = false;
+  for (const raw of S.agreementRaw.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith('##')) {
+      if (inList) { out.push('</ul>'); inList = false; }
+      out.push(`<h4>${esc(line.replace(/^#+\s*/, ''))}</h4>`);
+    } else if (line.startsWith('-')) {
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${esc(line.replace(/^-\s*/, ''))}</li>`);
+    } else {
+      if (inList) { out.push('</ul>'); inList = false; }
+      out.push(`<p>${esc(line)}</p>`);
+    }
+  }
+  if (inList) out.push('</ul>');
+  return out.join('');
+}
+
+const SCREENS = {
+  loading: () => '<div class="spinner"></div>',
+
+  /* ---------- auth ---------- */
+  auth: () => {
+    const m = window.__authMode || 'login';
+    if (m === 'login') {
+      const saved = JSON.parse(localStorage.getItem('nlbmx_emails') || '[]');
+      const chips = saved.length ? `
+        <div class="email-chips">
+          ${saved.map(e => `<button class="email-chip" onclick="fillEmail('${esc(e)}')">${esc(e)}<span class="chip-x" onclick="event.stopPropagation();removeEmail('${esc(e)}')">×</span></button>`).join('')}
+        </div>` : '';
+      return `
+        <div class="center-wrap">
+          <h2>Welcome back</h2>
+          <p class="sub">Sign in with your email and PIN.</p>
+          ${chips}
+          <label>Email</label>
+          <input id="li_email" type="email" autocomplete="email" placeholder="you@email.com">
+          <label>PIN</label>
+          <input id="li_pin" type="password" inputmode="numeric" placeholder="••••">
+          <button class="btn" onclick="doLogin()">Sign In</button>
+          <button class="linkbtn" onclick="window.__authMode='signup';render()">New to the team? Create an account</button>
+          <div id="authMsg"></div>
+        </div>`;
+    }
+    return `
+      <div class="center-wrap">
+        <h2>Join the team</h2>
+        <p class="sub">Create your account to get started.</p>
+        <label>Full Name</label><input id="su_name" placeholder="First and last name">
+        <label>Email</label><input id="su_email" type="email" autocomplete="email" placeholder="you@email.com">
+        <label>Phone</label><input id="su_phone" type="tel" autocomplete="tel" placeholder="239-555-0123">
+        <label>Are you a…?</label>
+        <div class="radio-row">
+          <button onclick="setRole('RIDER')" id="r_RIDER">Rider</button>
+          <button onclick="setRole('PARENT')" id="r_PARENT">Parent/<br>Guardian</button>
+          <button onclick="setRole('BOTH')" id="r_BOTH">Both</button>
+        </div>
+        <div id="roleExtra"></div>
+        <label>Choose a PIN (4+ digits)</label>
+        <input id="su_pin" type="password" inputmode="numeric" placeholder="••••">
+        <button class="btn" onclick="doSignup()">Create Account</button>
+        <button class="linkbtn" onclick="window.__authMode='login';render()">Already have an account? Sign in</button>
+        <div id="authMsg"></div>
+      </div>`;
+  },
+
+  /* ---------- home ---------- */
+  home: () => {
+    let html = '';
+    const list = S.myRiders || [];
+    const needsForm = list.filter(r => r.formStatus !== 'Complete');
+    const needsPay = list.filter(r => r.formStatus === 'Complete' && r.paymentStatus === 'Unpaid');
+    const verifying = list.filter(r => r.paymentStatus === 'Verifying');
+
+    if (needsForm.length) {
+      const who = needsForm.length === 1 ? needsForm[0].name : `${needsForm.length} riders`;
+      html += `<button class="banner forms" onclick="openForms()">
+        <div class="bicon"><img src="/icons/team-forms.png" style="width:28px;height:28px" alt=""></div>
+        <div><div class="t1">Team Forms</div>
+        <div class="t2">${esc(S.config.season || '2026-2027')} agreement needed for ${esc(who)}</div></div>
+      </button>`;
+    } else if (needsPay.length) {
+      const who = needsPay.length === 1 ? needsPay[0].name : `${needsPay.length} riders`;
+      html += `<button class="banner pay" onclick="openForms()">
+        <div class="bicon">💳</div>
+        <div><div class="t1">Payment Needed</div>
+        <div class="t2">$${esc(S.config.feeAmount || '100')} team fee for ${esc(who)}</div></div>
+      </button>`;
+    } else if (verifying.length) {
+      html += `<button class="banner verify" onclick="openForms()">
+        <div class="bicon">⏳</div>
+        <div><div class="t1">Payment verification in progress</div>
+        <div class="t2">Tap to check again</div></div>
+      </button>`;
+    }
+
+    const tiles = S.tiles.filter(t =>
+      t.label !== 'Team Forms' && !(t.visibility === 'admin' && !S.isAdmin));
+
+    html += '<div class="grid">';
+    tiles.forEach((t, i) => {
+      const col = i % 2 === 0 ? 'ticon-orange' : 'ticon-green';
+      html += `<button class="tile" onclick="tapTile('${t.gid}')">
+        <div class="ticon ${col}">${tileIcon(t)}</div>
+        <span>${esc(t.label.toUpperCase())}</span></button>`;
+    });
+    if (S.isAdmin) {
+      const col = tiles.length % 2 === 0 ? 'ticon-orange' : 'ticon-green';
+      html += `<button class="tile" onclick="go('admin')">
+        <div class="ticon ${col}"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
+        <span>ADMIN</span></button>`;
+    }
+    html += '</div>';
+    return html;
+  },
+
+  /* ---------- schedule (agenda) ---------- */
+  schedule: () => {
+    if (S.calError) return `<h2>Schedule</h2><div class="empty">Couldn't load the calendar.<br>${esc(S.calError)}</div>`;
+    if (!S.calEvents) return '<div class="spinner"></div>';
+    if (!S.calEvents.length) return '<h2>Schedule</h2><div class="empty">No upcoming events.</div>';
+    let html = '<h2>Schedule</h2>';
+    let lastKey = null;
+    for (const e of S.calEvents) {
+      const key = evtDayKey(e);
+      if (key !== lastKey) { html += `<div class="day-label">${esc(evtDayLabel(e))}</div>`; lastKey = key; }
+      html += `<div class="evt-card" style="background:${esc(evtColor(e))}" onclick="openScheduleDetail('${esc(e.id)}')">
+        <div class="evt-title">${esc(e.title)}</div>
+        <div class="evt-time">${esc(evtTime(e))}${e.location ? ' · ' + esc(fmtLocation(e.location)) : ''}</div>
+      </div>`;
+    }
+    return html;
+  },
+
+  scheduleDetail: () => {
+    const e = (S.calEvents || []).find(x => x.id === S.calSelectedId);
+    if (!e) return '<div class="spinner"></div>';
+    return `
+      <div class="evt-detail-band" style="background:${esc(evtColor(e))}"></div>
+      <h2>${esc(e.title)}</h2>
+      <p class="sub">${esc(evtDateLong(e))}<br>${esc(evtTime(e))}</p>
+      ${e.location ? `<p class="sub">📍 ${esc(e.location)}</p>` : ''}
+      ${e.description ? `<div class="evt-desc">${esc(e.description).replace(/\n/g, '<br>')}</div>` : ''}
+      ${e.htmlLink ? `<button class="btn alt slim" onclick="openExternal('${esc(e.htmlLink)}')">Open in Google Calendar</button>` : ''}
+    `;
+  },
+
+  /* ---------- gear ---------- */
+  gear: () => {
+    const t = S.tiles.find(x => x.label === 'Gear Ordering') || { sub: {} };
+    const opt = (label, url) => url && url.startsWith('http')
+      ? `<div class="card" onclick="openExternal('${esc(url)}')">
+           <div class="cname">${label}</div><div class="cmeta">Opens the vendor's order page</div></div>`
+      : `<div class="card flat" style="opacity:.55">
+           <div class="cname">${label}</div><div class="cmeta">Coming soon</div></div>`;
+    return `<h2>Gear Ordering</h2><p class="sub">Order directly from our vendors.</p>
+      ${opt('Gear', t.sub.gear)}
+      ${opt('Jerseys &amp; Apparel', t.sub.jerseys)}
+      ${opt('Number Plates', t.sub.plates)}`;
+  },
+
+  /* ---------- roster ---------- */
+  roster: () => {
+    if (!S.riders.length && !S.unlinked.length) return '<div class="spinner"></div>';
+    let html = `<h2>Team Roster</h2><p class="sub">${S.riders.length} rider${S.riders.length === 1 ? '' : 's'}</p>`;
+    for (const r of S.riders) {
+      const a = age(r.dob);
+      const bits = [
+        r.raceNumber && `#${r.raceNumber}`,
+        a !== '' && `Age ${a}`,
+        r.proficiency,
+        r.dob && fmtDOB(r.dob),
+      ].filter(Boolean).join(' · ');
+      let pill = '';
+      if (S.isAdmin) {
+        pill = r.formStatus === 'Complete'
+          ? (r.paymentStatus === 'Paid'
+              ? '<span class="pill ok">✓ PAID</span>'
+              : '<span class="pill wait">UNPAID</span>')
+          : '<span class="pill grey">NO FORM</span>';
+      }
+      html += `<div class="card" onclick="viewRider('${r.gid}')">
+        <div class="cname">${esc(r.name)}${pill}</div>
+        <div class="cmeta">${esc(bits || 'No details yet')}</div></div>`;
+    }
+    if (S.isAdmin && S.unlinked.length) {
+      html += `<div class="sechead warn">Unlinked accounts (${S.unlinked.length})</div>`;
+      for (const u of S.unlinked) {
+        html += `<div class="card" onclick="startLink('${u.gid}')">
+          <div class="cname">${esc(u.name)}</div>
+          <div class="cmeta">${esc(u.email || '')}${u.pendingMatch ? ' · ⚠ ' + esc(u.pendingMatch) : ''}</div>
+          <div class="cmeta">Tap to link to a rider</div></div>`;
+      }
+    }
+    return html;
+  },
+
+  riderProfile: () => {
+    const r = S.viewRider;
+    if (!r) return '<div class="empty">Rider not found.</div>';
+    const row = (k, v) => v ? `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>` : '';
+    let html = `<h2>${esc(r.name)}</h2><p class="sub">${esc(r.nickname || 'Rider profile')}</p>`;
+    html += row('Birthday', esc(fmtDOB(r.dob)));
+    html += row('Age', esc(String(age(r.dob))));
+    html += row('Proficiency', esc(r.proficiency));
+    html += row('Race Number', esc(r.raceNumber));
+    html += row('Email', mailLink(r.email));
+    html += row('Phone', phoneLink(r.phone));
+
+    html += `<div class="sechead">Parents &amp; Guardians</div>`;
+    for (const p of (r.parents || [])) {
+      html += `<div class="card flat">
+        <div class="cname">${esc(p.name)}</div>
+        ${p.phone ? `<div class="cmeta">${phoneLink(p.phone)}</div>` : ''}
+        ${p.email ? `<div class="cmeta">${mailLink(p.email)}</div>` : ''}
+        ${!p.phone && !p.email ? '<div class="cmeta">Contact info is private</div>' : ''}
+        ${S.isAdmin && p.pin ? `<div class="cmeta">PIN: <b>${esc(p.pin)}</b></div>` : ''}
+        ${S.isAdmin ? `<button class="btn tiny alt" style="margin-top:12px"
+           onclick="unlinkParent('${p.gid}','${r.gid}')">Unlink</button>` : ''}
+      </div>`;
+    }
+    if (S.isAdmin) {
+      html += `<button class="btn alt slim" style="margin-top:8px" onclick="startLinkParent('${r.gid}')">+ Link Parent</button>`;
+    }
+
+    if (S.isAdmin) {
+      html += `<div class="sechead warn">Coaches only</div>`;
+      html += row('USA BMX #', esc(r.usabmx));
+      html += row('Emergency Contact', esc(r.emergencyContact));
+      html += row('Emergency Phone', phoneLink(r.emergencyPhone));
+      html += row('Form Status', esc(r.formStatus));
+      html += row('Signed By', esc(r.signedBy));
+      html += row('Signed Date', esc(fmtDate(r.signedDate)));
+      html += row('Payment', esc(r.paymentStatus));
+      html += `<div class="kv"><span class="k">Rider PIN</span><span class="v">${esc(r.pin) || '<i>No Account Created</i>'}</span></div>`;
+      if (r.pendingMatch) html += row('⚠ Pending Match', esc(r.pendingMatch));
+      html += r.paymentStatus === 'Paid'
+        ? `<button class="btn alt slim" onclick="markPaid('${r.gid}',true)">Mark as Unpaid</button>`
+        : `<button class="btn slim" onclick="markPaid('${r.gid}',false)">Mark as Paid</button>`;
+    }
+    return html;
+  },
+
+  linkAccount: () => {
+    const u = S.linking;
+    if (!u) return '<div class="empty">Account not found.</div>';
+    let html = `<h2>Link ${esc(u.name)}</h2><p class="sub">Choose the rider this account belongs to.</p>`;
+    if (u.pendingMatch) html += `<div class="msg info">Suggested: ${esc(u.pendingMatch)}</div>`;
+    for (const r of S.riderIndex) {
+      html += `<div class="card" onclick="doLink('${u.gid}','${r.gid}')">
+        <div class="cname">${esc(r.name)}</div><div class="cmeta">Tap to link</div></div>`;
+    }
+    if (!S.riderIndex.length) html += '<div class="empty">No riders on the roster yet.</div>';
+    return html;
+  },
+
+  linkParent: () => {
+    const r = S.linking;
+    if (!r) return '<div class="empty">Rider not found.</div>';
+    // Build a flat list of all parent accounts: unlinked + those already linked to other riders
+    const allParents = [...(S.unlinked || [])];
+    for (const rider of S.riders) {
+      for (const p of (rider.parents || [])) {
+        if (!allParents.find(x => x.gid === p.gid)) allParents.push(p);
+      }
+    }
+    let html = `<h2>Link Parent to ${esc(r.name)}</h2><p class="sub">Choose a parent account to link.</p>`;
+    for (const p of allParents) {
+      html += `<div class="card" onclick="doLink('${p.gid}','${r.gid}')">
+        <div class="cname">${esc(p.name)}</div>
+        <div class="cmeta">${esc(p.email || p.phone || 'No contact info')}</div>
+      </div>`;
+    }
+    if (!allParents.length) html += '<div class="empty">No parent accounts found.</div>';
+    return html;
+  },
+
+  /* ---------- profile ---------- */
+  profile: () => {
+    const f = S.fields;
+    const sw = (id, on) => `<button class="switch ${on ? 'on' : ''}" id="${id}" onclick="this.classList.toggle('on')"></button>`;
+    const isRider = S.user?.role === 'RIDER' || S.user?.role === 'BOTH';
+    return `<h2>My Profile</h2><p class="sub">${esc(S.user?.email || '')}</p>
+      <label>Phone</label><input id="p_phone" value="${esc(fmtPhone(f.PHONE))}" type="tel">
+      <label>Nickname</label><input id="p_nick" value="${esc(f.NICKNAME || '')}">
+      ${isRider ? `
+        <label>Birthday</label><input id="p_dob" type="date" value="${esc(f.DOB || '')}">
+        <label>Proficiency</label><input id="p_prof" value="${esc(f.PROFICIENCY || '')}">
+        <label>Race Number</label><input id="p_race" value="${esc(f.RACE_NUMBER || '')}">` : ''}
+      <label>Reset PIN</label><input id="p_pin" inputmode="numeric" value="" placeholder="Leave blank to keep current">
+      <div class="sechead">Privacy</div>
+      <div class="toggle-row">
+        <div><div class="tl">Share my phone</div><div class="tn">Visible to the team</div></div>
+        ${sw('p_phonePub', (f.PHONE_PUBLIC || 'true') !== 'false')}
+      </div>
+      <div class="toggle-row">
+        <div><div class="tl">Share my email</div><div class="tn">Visible to the team</div></div>
+        ${sw('p_emailPub', (f.EMAIL_PUBLIC || 'true') !== 'false')}
+      </div>
+      <button class="btn" onclick="saveProfile()">Save Changes</button>
+      <button class="linkbtn" onclick="logout()">Sign out</button>
+      <div id="profMsg"></div>
+      ${S.myRiders && S.myRiders.filter(r => !r.self).length ? `
+        <div class="sechead">My Riders</div>
+        <p class="sub" style="margin-top:-8px">Edit contact info and privacy for each linked rider.</p>
+        ${S.myRiders.filter(r => !r.self).map(r => `
+          <div class="card flat">
+            <div class="cname">${esc(r.name)}</div>
+            <label style="margin-top:14px">Phone</label>
+            <input id="rp_phone_${r.gid}" value="${esc(fmtPhone(r.phone || ''))}" type="tel">
+            <label>Email</label>
+            <input id="rp_email_${r.gid}" value="${esc(r.email || '')}" type="email">
+            <div class="toggle-row" style="margin-top:12px">
+              <div><div class="tl">Share phone</div><div class="tn">Visible to team</div></div>
+              <button class="switch ${(r.phonePublic !== false) ? 'on' : ''}"
+                id="rp_phonePub_${r.gid}"
+                onclick="this.classList.toggle('on')"></button>
+            </div>
+            <div class="toggle-row">
+              <div><div class="tl">Share email</div><div class="tn">Visible to team</div></div>
+              <button class="switch ${(r.emailPublic !== false) ? 'on' : ''}"
+                id="rp_emailPub_${r.gid}"
+                onclick="this.classList.toggle('on')"></button>
+            </div>
+            <button class="btn slim" style="margin-top:14px"
+              onclick="saveRiderContact('${r.gid}')">Save ${esc(r.name.split(' ')[0])}'s Info</button>
+            <div id="rp_msg_${r.gid}"></div>
+          </div>`).join('')}` : ''}`;
+  },
+
+  /* ---------- forms ---------- */
+  pickRider: () => {
+    if (!S.myRiders) return '<div class="spinner"></div>';
+    // Admin sees all riders with status overview
+    if (S.isAdmin) {
+      const all = S.riders;
+      if (!all.length) return '<h2>Team Forms</h2><div class="empty">No riders yet.</div>';
+      let html = `<h2>Team Forms</h2><p class="sub">Season status for all riders.</p>`;
+      for (const r of all) {
+        const formDone = r.formStatus === 'Complete';
+        const paid = r.paymentStatus === 'Paid';
+        const check = (formDone && paid) ? '🟢' : '⚪';
+        html += `<div class="card flat" style="display:flex;align-items:center;gap:14px">
+          <span style="font-size:22px">${check}</span>
+          <div style="flex:1;min-width:0">
+            <div class="cname" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}</div>
+            <div class="cmeta">${formDone ? '✓ Form signed' : '✗ No form'} · ${paid ? '✓ Paid' : '✗ Unpaid'}</div>
+          </div>
+        </div>`;
+      }
+      return html;
+    }
+    // Regular user — their own riders
+    if (!S.myRiders.length) return `<h2>Team Forms</h2>
+      <div class="empty">No riders are linked to your account yet.<br>Ask your team director to link you.</div>`;
+    let html = `<h2>Team Forms</h2><p class="sub">Agreement and team fee, per rider.</p>`;
+    for (const r of S.myRiders) {
+      const formDone = r.formStatus === 'Complete';
+      const paid = r.paymentStatus === 'Paid';
+      let status, action;
+      if (!formDone) { status = '<span class="pill wait">FORM NEEDED</span>'; action = `startForm('${r.gid}')`; }
+      else if (paid) { status = '<span class="pill ok">✓ COMPLETE</span>'; action = ''; }
+      else if (r.paymentStatus === 'Verifying') { status = '<span class="pill grey">VERIFYING</span>'; action = `checkPay('${r.gid}')`; }
+      else { status = '<span class="pill wait">PAYMENT DUE</span>'; action = `payFor('${r.gid}')`; }
+      html += `<div class="card${paid && formDone ? ' done' : ''}"
+          ${action ? `onclick="${action}"` : 'style="opacity:.75"'}>
+        <div class="cname">${esc(r.name)}${status}</div>
+        <div class="cmeta">${!formDone ? 'Tap to complete the agreement'
+          : paid ? 'Agreement signed, fee paid'
+          : r.paymentStatus === 'Verifying' ? 'Tap to check payment status'
+          : `Tap to pay the $${esc(S.config.feeAmount || '100')} team fee`}</div>
+      </div>`;
+    }
+    return html;
+  },
+
+  forms: () => {
+    const step = window.__formStep || 1;
+    const forName = FORM.__name || '';
+    const isSelf = FORM.__self;
+
+    if (step === 1) return `
+      <div class="steps">STEP 1 OF 4</div>
+      <h2>Welcome to Next Level BMX!</h2>
+      <p class="sub">We're excited to have you as part of our BMX family.</p>
+      <p style="font-size:16.5px;line-height:1.6">At Next Level, we're all about riding hard, great sportsmanship, and representing our team's values both on and off the track. But most importantly — we want you to have fun and enjoy the sport of BMX!</p>
+      <p style="font-size:16.5px;line-height:1.6"><b>${esc(S.config.season || '2026-2027')} Rider &amp; Parent Agreement</b><br>
+      <span style="color:var(--muted)">${esc(S.config.seasonDates || '')}</span></p>
+      ${forName ? `<div class="msg ok">Completing this form for <b>${esc(forName)}</b></div>` : ''}
+      <button class="btn" onclick="formStep(2)">Get Started</button>`;
+
+    if (step === 2) return `
+      <div class="steps">STEP 2 OF 4 — RIDER INFO</div>
+      <h2>Rider Details</h2>
+      <p class="sub">${isSelf ? 'Enter your information.' : `Enter ${esc(forName)}'s information.`}</p>
+      <label>Rider Name</label><input id="f_name" value="${esc(FORM.__riderName || '')}">
+      <label>Nickname</label><input id="f_nick" value="${esc(FORM.nickname || '')}">
+      <label>Birthdate</label><input id="f_dob" type="date" value="${esc(FORM.dob || '')}">
+      <label>USA BMX Member #</label><input id="f_usabmx" value="${esc(FORM.usabmx || '')}">
+      <label>Current Proficiency</label>
+      <select id="f_prof"><option value="">Select…</option>
+        ${['Novice','Intermediate','Expert','Girl Novice','Girl Intermediate','Girl Ex','Cruiser','Open']
+          .map(p => `<option ${FORM.proficiency === p ? 'selected' : ''}>${p}</option>`).join('')}
+      </select>
+      <label>Race Number <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+      <input id="f_race" value="${esc(FORM.raceNumber || '')}">
+      <button class="btn" onclick="formStep(3)">Continue</button>`;
+
+    if (step === 3) return `
+      <div class="steps">STEP 3 OF 4 — EMERGENCY CONTACT</div>
+      <h2>Contact Info</h2>
+      <p class="sub">Emergency contact is always kept private to coaches.</p>
+      <label>Emergency Contact Name</label><input id="f_emName" value="${esc(FORM.emergencyName || '')}">
+      <label>Emergency Contact Phone</label><input id="f_emPhone" type="tel" value="${esc(FORM.emergencyPhone || '')}">
+      <div class="sechead">Privacy Choices</div>
+      <div class="toggle-row">
+        <div><div class="tl">Share phone with team</div><div class="tn">Otherwise coaches only</div></div>
+        <button class="switch ${FORM.phonePublic === false ? '' : 'on'}" id="f_phonePub" onclick="this.classList.toggle('on')"></button>
+      </div>
+      <div class="toggle-row">
+        <div><div class="tl">Share email with team</div><div class="tn">Otherwise coaches only</div></div>
+        <button class="switch ${FORM.emailPublic === false ? '' : 'on'}" id="f_emailPub" onclick="this.classList.toggle('on')"></button>
+      </div>
+      <button class="btn" onclick="formStep(4)">Continue</button>`;
+
+    return `
+      <div class="steps">STEP 4 OF 4 — AGREEMENT</div>
+      <h2>Rider &amp; Parent Agreement</h2>
+      <p class="sub">Please read, then sign below.</p>
+      <div class="agreement">${agreementHtml()}</div>
+      <label>Type your full name to sign</label>
+      <input id="f_sig" placeholder="${esc(S.user?.name || 'Your full name')}">
+      <p class="sub" style="margin-top:10px;font-size:14.5px">
+        Signing as <b>${isSelf ? 'Rider (18+)' : 'Parent / Guardian'}</b>${forName && !isSelf ? ` for <b>${esc(forName)}</b>` : ''} on ${fmtDate(new Date().toISOString())}.
+      </p>
+      <button class="btn" onclick="submitForm()">Sign &amp; Submit</button>
+      <div id="formMsg"></div>`;
+  },
+
+  payment: () => {
+    const r = FORM.__payRider || {};
+    return `<h2>Team Fee</h2>
+      <p class="sub">$${esc(S.config.feeAmount || '100')} operations fee for <b>${esc(r.name || '')}</b>.</p>
+      <div class="msg info">This covers team operations and the annual charter fee. Jerseys, shirts, and plates are ordered separately.</div>
+      <button class="btn orange" onclick="goPay()">Pay $${esc(S.config.feeAmount || '100')} Now</button>
+      <button class="btn alt slim" onclick="checkPay('${esc(r.gid || '')}')">I've already paid — check now</button>
+      <div id="payMsg"></div>`;
+  },
+
+  /* ---------- sign-ups ---------- */
+  signups: () => {
+    if (!S.events) return '<div class="spinner"></div>';
+    if (!S.events.length) return `<h2>Sign-Ups</h2>
+      <div class="empty">No sign-up boards posted yet.</div>`;
+    let html = `<h2>Sign-Ups</h2><p class="sub">Tap a race to claim what you can bring.</p>`;
+    for (const e of S.events) {
+      const full = e.open === 0;
+      html += `<div class="card${full ? ' done' : ''}" onclick="openEvent('${e.gid}')"
+          style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div style="flex:1">
+          <div class="cname">${esc(e.name)}</div>
+          <div class="cmeta">${esc(fmtRange(e.date, e.endDate))}</div>
+        </div>
+        <span class="countbadge${full ? ' done' : ''}">${full ? '✓ FULL' : `${e.open} OPEN`}</span>
+      </div>`;
+    }
+    if (S.isAdmin) html += `<button class="btn alt slim" onclick="go('newEvent')">+ New Sign-Up Board</button>`;
+    return html;
+  },
+
+  eventDetail: () => {
+    const e = S.eventDetail;
+    if (!e) return '<div class="spinner"></div>';
+    const open = e.slots.filter(s => !s.claimedBy).length;
+    let html = `<h2>${esc(e.name)}</h2><p class="sub">${esc(fmtRange(e.date, e.endDate))}</p>`;
+    html += open
+      ? `<div class="msg err" style="font-weight:700">${open} item${open === 1 ? '' : 's'} still needed — can you bring one?</div>`
+      : `<div class="msg ok" style="font-weight:700">✓ Everything is covered. Thank you!</div>`;
+    html += '<div style="height:14px"></div>';
+    for (const s of e.slots) {
+      const mine = s.claimedGid === S.user?.gid;
+      const isOpen = !s.claimedBy;
+      html += `<div class="card flat${isOpen ? '' : ' done'}"
+          style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div style="flex:1">
+          <div class="cname" style="font-size:16px">${esc(s.item)}</div>
+          <div class="cmeta">${isOpen ? 'Open — nobody yet' : (mine ? 'You claimed this' : `Bringing: ${esc(s.claimedBy)}`)}</div>
+        </div>
+        ${isOpen
+          ? `<button class="btn tiny" onclick="claim('${s.gid}',false)">Claim</button>`
+          : mine
+            ? `<button class="btn tiny alt" onclick="claim('${s.gid}',true)">Release</button>`
+            : `<span class="pill ok">✓</span>`}
+      </div>`;
+    }
+    return html;
+  },
+
+  /* ---------- admin ---------- */
+  admin: () => `
+    <h2>Admin</h2><p class="sub">Tap a tile to edit its link, order, and visibility.</p>
+    <div class="sechead">Tiles</div>
+    ${S.tiles.map(t => `<div class="card" onclick="editTile('${t.gid}')"
+        style="display:flex;justify-content:space-between;align-items:center;gap:10px;overflow:hidden">
+      <div style="flex:1;min-width:0">
+        <div class="cname" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.label)}</div>
+        <div class="cmeta" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.link ? esc(t.link.slice(0, 40)) + (t.link.length > 40 ? '…' : '') : 'No link'}</div>
+      </div>
+      <span class="pill ${t.visibility === 'admin' ? 'wait' : 'grey'}" style="flex-shrink:0">${esc(t.visibility.toUpperCase())}</span>
+    </div>`).join('')}`,
+
+  zeffy: () => {
+    if (!S.zeffyCampaigns) return '<div class="spinner"></div>';
+    let html = `<h2>Zeffy Campaign</h2>
+      <p class="sub">Pick the campaign that collects the team fee. Payments are matched against it.</p>`;
+    if (!S.zeffyCampaigns.length) return html + '<div class="empty">No campaigns came back. Check the API key in Vercel.</div>';
+    for (const c of S.zeffyCampaigns) {
+      html += `<div class="card" onclick="setCampaign('${esc(c.id)}')">
+        <div class="cname">${esc(c.title)}</div>
+        <div class="cmeta">${esc(c.type || '')} · ${esc(c.id)}</div></div>`;
+    }
+    return html + '<div id="zfMsg"></div>';
+  },
+
+  editTile: () => {
+    const t = S.editing;
+    if (!t) return '<div class="empty">Tile not found.</div>';
+    return `<h2>${esc(t.label)}</h2><p class="sub">Saves to Asana instantly — no redeploy.</p>
+      <label>Link URL</label><input id="e_link" value="${esc(t.link || '')}">
+      <label>Order</label><input id="e_order" type="number" value="${t.order}">
+      <label>Visibility</label>
+      <div class="radio-row">
+        <button id="v_public" class="${t.visibility === 'public' ? 'on' : ''}" onclick="setVis('public')">Everyone</button>
+        <button id="v_admin" class="${t.visibility === 'admin' ? 'on' : ''}" onclick="setVis('admin')">Admin only</button>
+      </div>
+      ${t.label === 'Gear Ordering' ? `
+        <label>Gear link</label><input id="e_gear" value="${esc(t.sub.gear || '')}">
+        <label>Jerseys / Apparel link</label><input id="e_jers" value="${esc(t.sub.jerseys || '')}">
+        <label>Number Plates link</label><input id="e_plat" value="${esc(t.sub.plates || '')}">` : ''}
+      ${t.label === 'Sign-Ups' ? `<div class="sechead">Actions</div>
+        <button class="btn alt slim" onclick="go('newEvent')">+ New Sign-Up Board</button>` : ''}
+      ${t.label === 'Team Forms' ? `<div class="sechead">Actions</div>
+        <button class="btn alt slim" onclick="openZeffy()">Set Zeffy Campaign</button>` : ''}
+      <button class="btn" style="margin-top:26px" onclick="saveTile()">Save Tile</button>
+      <div id="tileMsg"></div>`;
+  },
+
+  newEvent: () => `
+    <h2>New Sign-Up Board</h2><p class="sub">Default race items are pre-filled. Edit freely.</p>
+    <label>Event Name</label><input id="ev_name" placeholder="e.g. Team Party">
+    <label>Start Date</label><input id="ev_date" type="date">
+    <label>End Date <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+    <input id="ev_end" type="date">
+    <label>Items needed (one per line)</label>
+    <textarea id="ev_items" rows="10">${DEFAULT_ITEMS}</textarea>
+    <button class="btn" onclick="makeBoard()">Create Board</button>
+    <div id="evMsg"></div>`,
+};
+
+const DEFAULT_ITEMS = `Ice — 3 bags (Saturday)
+Ice — 2 bags (Sunday)
+Water — 2 gallons (Friday)
+Water — 2 gallons (Saturday)
+Water — 2 gallons (Sunday)
+Assorted Chips/Snacks — variety, 18-24 count
+Bars — variety, 18-24 count
+Trail Mix — variety, 18-24 count
+Fruit — watermelon, mandarins, grapes, apples, bananas`;
+
+/* ============ actions ============ */
+let ROLE = '';
+function setRole(r) {
+  ROLE = r;
+  for (const x of ['RIDER', 'PARENT', 'BOTH'])
+    document.getElementById('r_' + x)?.classList.toggle('on', x === r);
+  let html = '';
+  if (r === 'RIDER') html = `<label>Your Birthdate</label><input id="su_dob" type="date">`;
+  if (r === 'PARENT' || r === 'BOTH')
+    html += `<label>Your Rider's Name(s)</label>
+      <input id="su_r1" placeholder="Rider 1 full name">
+      <input id="su_r2" placeholder="Rider 2 (optional)" style="margin-top:10px">`;
+  document.getElementById('roleExtra').innerHTML = html;
+}
+function setVis(v) {
+  document.getElementById('v_public').classList.toggle('on', v === 'public');
+  document.getElementById('v_admin').classList.toggle('on', v === 'admin');
+}
+const msg = (id, text, kind = 'err') => {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = `<div class="msg ${kind}">${esc(text)}</div>`;
+};
+
+async function doSignup() {
+  const name = document.getElementById('su_name').value.trim();
+  const email = document.getElementById('su_email').value.trim();
+  const phone = document.getElementById('su_phone').value.trim();
+  const pin = document.getElementById('su_pin').value.trim();
+  const dob = document.getElementById('su_dob')?.value || '';
+  const riderNames = [
+    document.getElementById('su_r1')?.value.trim(),
+    document.getElementById('su_r2')?.value.trim(),
+  ].filter(Boolean);
+
+  if (!name || !email || !pin || !ROLE) return msg('authMsg', 'Please fill in every field.');
+  if (pin.length < 4) return msg('authMsg', 'PIN must be at least 4 digits.');
+  if (ROLE === 'RIDER' && !dob) return msg('authMsg', 'Please enter your birthdate.');
+  if ((ROLE === 'PARENT' || ROLE === 'BOTH') && !riderNames.length)
+    return msg('authMsg', "Please enter your rider's name.");
+
+  try {
+    msg('authMsg', 'Creating your account…', 'ok');
+    const r = await api('signup', { name, email, phone, role: ROLE, dob, pin, riderNames });
+    S.user = r.user; S.session = r.session;
+    const me = await api('me');
+    S.fields = me.fields; S.isAdmin = me.user.isAdmin;
+    save(); S.history = [];
+    await loadMyRidersQuietly();
+    go('home', false);
+  } catch (e) { msg('authMsg', e.message); }
+}
+
+async function doLogin() {
+  const email = document.getElementById('li_email').value.trim();
+  const pin = document.getElementById('li_pin').value.trim();
+  if (!email || !pin) return msg('authMsg', 'Enter your email and PIN.');
+  try {
+    msg('authMsg', 'Signing in…', 'ok');
+    const r = await api('login', { email, pin });
+    S.user = r.user; S.session = r.session;
+    const me = await api('me');
+    S.fields = me.fields; S.isAdmin = me.user.isAdmin;
+    save(); S.history = [];
+    rememberEmail(email);
+    await loadMyRidersQuietly();
+    go('home', false);
+  } catch (e) { msg('authMsg', e.message); }
+}
+
+function rememberEmail(email) {
+  const e = email.trim().toLowerCase();
+  if (!e) return;
+  let list = JSON.parse(localStorage.getItem('nlbmx_emails') || '[]');
+  list = [e, ...list.filter(x => x !== e)].slice(0, 6); // most recent first, max 6
+  localStorage.setItem('nlbmx_emails', JSON.stringify(list));
+}
+function fillEmail(email) {
+  const inp = document.getElementById('li_email');
+  if (inp) { inp.value = email; document.getElementById('li_pin')?.focus(); }
+}
+function removeEmail(email) {
+  let list = JSON.parse(localStorage.getItem('nlbmx_emails') || '[]');
+  list = list.filter(x => x !== email);
+  localStorage.setItem('nlbmx_emails', JSON.stringify(list));
+  render();
+}
+
+function logout() {
+  clearSave();
+  S.user = null; S.session = null; S.fields = {}; S.history = []; S.myRiders = null;
+  window.__authMode = 'login';
+  go('auth', false);
+}
+
+async function tapTile(gid) {
+  const t = S.tiles.find(x => x.gid === gid);
+  if (!t) return;
+  if (t.label === 'Roster') return openRoster();
+  if (t.label === 'Sign-Ups') return openSignups();
+  if (t.label === 'Gear Ordering') return go('gear');
+  if (t.label === 'Team Forms') return openForms();
+  if (t.label === 'Schedule') return openSchedule();
+  if (t.link && t.link.startsWith('http')) return openExternal(t.link);
+  alert(`${t.label} isn't set up yet — the link is coming soon.`);
+}
+
+async function openSchedule() {
+  go('schedule');
+  S.calError = null;
+  try {
+    const r = await fetch('/api/calendar');
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed to load calendar');
+    S.calEvents = data.events || [];
+  } catch (e) {
+    S.calEvents = null;
+    S.calError = e.message;
+  }
+  render();
+}
+
+function openScheduleDetail(id) {
+  S.calSelectedId = id;
+  go('scheduleDetail');
+}
+
+async function openRoster() {
+  S.riders = []; S.unlinked = []; go('roster');
+  try {
+    const r = await api('roster');
+    S.riders = r.riders; S.unlinked = r.unlinked || [];
+    S.riderIndex = r.riderIndex || []; S.isAdmin = r.isAdmin;
+  } catch (e) { alert(e.message); }
+  render();
+}
+
+async function openSignups() {
+  S.events = null; go('signups');
+  try { S.events = (await api('signupEvents')).events; }
+  catch (e) { S.events = []; alert(e.message); }
+  render();
+}
+
+async function openEvent(eventGid) {
+  S.eventDetail = null; go('eventDetail');
+  try { S.eventDetail = (await api('signupDetail', { eventGid })).event; }
+  catch (e) { alert(e.message); }
+  render();
+}
+
+async function openForms() {
+  S.myRiders = null; go('pickRider');
+  try {
+    S.myRiders = (await api('myRiders')).riders;
+    // Admins also need the full roster for the completion overview
+    if (S.isAdmin && !S.riders.length) {
+      const r = await api('roster');
+      S.riders = r.riders; S.isAdmin = r.isAdmin;
+    }
+  } catch (e) { S.myRiders = []; alert(e.message); }
+  render();
+}
+
+function viewRider(gid) { S.viewRider = S.riders.find(r => r.gid === gid); go('riderProfile'); }
+function startLink(gid) { S.linking = S.unlinked.find(u => u.gid === gid); go('linkAccount'); }
+function startLinkParent(riderGid) { S.linking = S.riders.find(r => r.gid === riderGid); go('linkParent'); }
+
+async function doLink(parentGid, riderGid) {
+  try { await api('adminLink', { parentGid, riderGid }); S.history.pop(); await openRoster(); }
+  catch (e) { alert(e.message); }
+}
+async function unlinkParent(parentGid, riderGid) {
+  if (!confirm('Unlink this parent from the rider?')) return;
+  try { await api('adminLink', { parentGid, riderGid, unlink: true }); S.history.pop(); await openRoster(); }
+  catch (e) { alert(e.message); }
+}
+async function markPaid(riderGid, unpay) {
+  try { await api('adminMarkPaid', { riderGid, unpay }); S.history.pop(); await openRoster(); }
+  catch (e) { alert(e.message); }
+}
+
+async function saveRiderContact(riderGid) {
+  const u = {
+    PHONE: (document.getElementById(`rp_phone_${riderGid}`)?.value || '').trim(),
+    EMAIL: (document.getElementById(`rp_email_${riderGid}`)?.value || '').trim(),
+    PHONE_PUBLIC: document.getElementById(`rp_phonePub_${riderGid}`)?.classList.contains('on') ? 'true' : 'false',
+    EMAIL_PUBLIC: document.getElementById(`rp_emailPub_${riderGid}`)?.classList.contains('on') ? 'true' : 'false',
+  };
+  try {
+    msg(`rp_msg_${riderGid}`, 'Saving…', 'ok');
+    await api('updateRiderContact', { riderGid, updates: u });
+    // Update local myRiders cache
+    const r = (S.myRiders || []).find(x => x.gid === riderGid);
+    if (r) { r.phone = u.PHONE; r.email = u.EMAIL; r.phonePublic = u.PHONE_PUBLIC === 'true'; r.emailPublic = u.EMAIL_PUBLIC === 'true'; }
+    msg(`rp_msg_${riderGid}`, 'Saved.', 'ok');
+  } catch (e) { msg(`rp_msg_${riderGid}`, e.message); }
+}
+
+async function saveProfile() {
+  const u = {
+    PHONE: document.getElementById('p_phone').value.trim(),
+    NICKNAME: document.getElementById('p_nick').value.trim(),
+    PHONE_PUBLIC: document.getElementById('p_phonePub').classList.contains('on') ? 'true' : 'false',
+    EMAIL_PUBLIC: document.getElementById('p_emailPub').classList.contains('on') ? 'true' : 'false',
+  };
+  const race = document.getElementById('p_race');
+  if (race) {
+    u.RACE_NUMBER = race.value.trim();
+    u.PROFICIENCY = document.getElementById('p_prof').value.trim();
+    u.DOB = document.getElementById('p_dob').value;
+  }
+  const pin = document.getElementById('p_pin').value.trim();
+  if (pin) {
+    if (pin.length < 4) return msg('profMsg', 'PIN must be at least 4 digits.');
+    u.PIN = pin;
+  }
+  try {
+    const r = await api('updateProfile', { updates: u });
+    S.fields = { ...S.fields, ...r.fields };
+    msg('profMsg', 'Saved.', 'ok');
+  } catch (e) { msg('profMsg', e.message); }
+}
+
+/* ---- forms ---- */
+let FORM = {};
+function startForm(riderGid) {
+  const entry = (S.myRiders || []).find(r => r.gid === riderGid);
+  if (!entry) return;
+  const plainName = entry.name;
+  FORM = { __target: riderGid, __self: !!entry.self, __name: plainName, __riderName: plainName };
+  if (entry.self) {
+    FORM.nickname = S.fields.NICKNAME || ''; FORM.dob = S.fields.DOB || '';
+    FORM.usabmx = S.fields.USABMX || ''; FORM.proficiency = S.fields.PROFICIENCY || '';
+    FORM.raceNumber = S.fields.RACE_NUMBER || '';
+  }
+  window.__formStep = 1;
+  go('forms');
+}
+
+function formStep(n) {
+  if (n === 3) {
+    FORM.name = document.getElementById('f_name').value.trim();
+    FORM.__riderName = FORM.name;
+    FORM.nickname = document.getElementById('f_nick').value.trim();
+    FORM.dob = document.getElementById('f_dob').value;
+    FORM.usabmx = document.getElementById('f_usabmx').value.trim();
+    FORM.proficiency = document.getElementById('f_prof').value;
+    FORM.raceNumber = document.getElementById('f_race').value.trim();
+    if (!FORM.name || !FORM.dob) return alert('Rider name and birthdate are required.');
+  }
+  if (n === 4) {
+    FORM.emergencyName = document.getElementById('f_emName').value.trim();
+    FORM.emergencyPhone = document.getElementById('f_emPhone').value.trim();
+    FORM.phonePublic = document.getElementById('f_phonePub').classList.contains('on');
+    FORM.emailPublic = document.getElementById('f_emailPub').classList.contains('on');
+    if (!FORM.emergencyName || !FORM.emergencyPhone)
+      return alert('Emergency contact name and phone are required.');
+  }
+  window.__formStep = n;
+  render();
+}
+
+async function submitForm() {
+  const sig = document.getElementById('f_sig').value.trim();
+  if (sig.length < 3) return msg('formMsg', 'Please type your full name to sign.');
+  FORM.signature = sig;
+  FORM.signerRole = FORM.__self ? 'Rider 18+' : 'Parent/Guardian';
+  try {
+    msg('formMsg', 'Submitting…', 'ok');
+    const r = await api('submitForm', { riderGid: FORM.__target, form: FORM });
+    if (FORM.__self) S.fields = { ...S.fields, ...r.fields };
+    const target = FORM.__target, nm = FORM.__name;
+    window.__formStep = 1; FORM = {};
+    await loadMyRidersQuietly();
+    FORM.__payRider = { gid: target, name: nm };
+    S.history = ['home'];
+    go('payment', false);
+  } catch (e) { msg('formMsg', e.message); }
+}
+
+/* ---- payment ---- */
+function payFor(riderGid) {
+  const entry = (S.myRiders || []).find(r => r.gid === riderGid);
+  FORM.__payRider = { gid: riderGid, name: entry?.name || '' };
+  go('payment');
+}
+async function goPay() {
+  const r = FORM.__payRider || {};
+  try { await api('payOpened', { riderGid: r.gid }); } catch {}
+  if (S.config.payUrl) openExternal(S.config.payUrl);
+  else alert('Payment link is not set yet.');
+}
+async function checkPay(riderGid) {
+  const gid = riderGid || FORM.__payRider?.gid;
+  if (!gid) return;
+  // Make sure there's somewhere to show the result.
+  if (!document.getElementById('payMsg')) {
+    const entry = (S.myRiders || []).find(r => r.gid === gid);
+    FORM.__payRider = { gid, name: entry?.name || '' };
+    go('payment');
+  }
+  try {
+    msg('payMsg', 'Checking with Zeffy…', 'info');
+    const r = await api('checkPayment', { riderGid: gid });
+    await loadMyRidersQuietly();
+    if (r.paid) { msg('payMsg', 'Payment confirmed. Thank you!', 'ok'); setTimeout(() => { S.history = []; go('home', false); }, 1400); }
+    else msg('payMsg', "We don't see your payment yet. It can take a few minutes — check back shortly.", 'info');
+  } catch (e) { msg('payMsg', e.message); }
+}
+
+/* ---- sign-ups ---- */
+async function claim(slotGid, release) {
+  try {
+    await api('claimSlot', { slotGid, userName: S.user.name, release });
+    S.eventDetail = (await api('signupDetail', { eventGid: S.eventDetail.gid })).event;
+    render();
+  } catch (e) { alert(e.message); }
+}
+
+/* ---- admin ---- */
+function editTile(gid) { S.editing = S.tiles.find(t => t.gid === gid); go('editTile'); }
+
+async function refreshTiles() {
+  const res = await fetch('/api/asana?action=bootstrap');
+  const data = await res.json();
+  if (res.ok) { S.tiles = data.tiles; S.config = data.config; S.agreementRaw = data.agreement || ''; }
+}
+
+async function saveTile() {
+  const t = S.editing;
+  const u = {
+    LINK: document.getElementById('e_link').value.trim(),
+    ORDER: document.getElementById('e_order').value,
+    VISIBILITY: document.getElementById('v_admin').classList.contains('on') ? 'admin' : 'public',
+  };
+  if (document.getElementById('e_gear')) {
+    u.SUBLINK_GEAR = document.getElementById('e_gear').value.trim();
+    u.SUBLINK_JERSEYS = document.getElementById('e_jers').value.trim();
+    u.SUBLINK_PLATES = document.getElementById('e_plat').value.trim();
+  }
+  try {
+    msg('tileMsg', 'Saving…', 'ok');
+    await api('adminSaveTile', { tileGid: t.gid, updates: u });
+    await refreshTiles();
+    msg('tileMsg', 'Saved.', 'ok');
+  } catch (e) { msg('tileMsg', e.message); }
+}
+
+async function openZeffy() {
+  S.zeffyCampaigns = null; go('zeffy');
+  try { S.zeffyCampaigns = (await api('adminZeffyCampaigns')).campaigns; }
+  catch (e) { S.zeffyCampaigns = []; alert(e.message); }
+  render();
+}
+async function setCampaign(campaignId) {
+  try {
+    await api('adminSetCampaign', { campaignId });
+    msg('zfMsg', 'Campaign set. Payments will match against it.', 'ok');
+  } catch (e) { msg('zfMsg', e.message); }
+}
+
+// Named makeBoard, not createEvent — document.createEvent is a browser built-in
+// and inline onclick resolves that first, silently breaking the button.
+async function makeBoard() {
+  const eventName = document.getElementById('ev_name').value.trim();
+  const date = document.getElementById('ev_date').value;
+  const endDate = document.getElementById('ev_end').value;
+  const items = document.getElementById('ev_items').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  if (!eventName) return msg('evMsg', 'Give the event a name.');
+  try {
+    msg('evMsg', 'Creating…', 'ok');
+    await api('adminCreateEvent', { eventName, date, endDate, items });
+    msg('evMsg', 'Board created.', 'ok');
+    setTimeout(() => { S.history = []; openSignups(); }, 900);
+  } catch (e) { msg('evMsg', e.message); }
+}
+
+boot();
+</script>
+</body>
+</html>
