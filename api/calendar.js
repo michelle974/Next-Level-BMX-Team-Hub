@@ -4,6 +4,10 @@
 // Requires two Vercel env vars:
 //   GOOGLE_CALENDAR_API_KEY  — API key with the Calendar API enabled
 //   GOOGLE_CALENDAR_ID       — e.g. nextlevelbmx239@gmail.com
+//
+// Default call returns the upcoming window (a small buffer back, one year out).
+// ?past=1 returns the previous 12 months, loaded on demand when an admin taps
+// "Previous Events" so nobody pays for that payload unless they ask for it.
 
 export default async function handler(req, res) {
   try {
@@ -13,13 +17,19 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'GOOGLE_CALENDAR_API_KEY is not set in Vercel.' });
     }
 
+    const past = String(req.query?.past || '') === '1';
     const timeMin = new Date();
-    timeMin.setMonth(timeMin.getMonth() - 1);
     const timeMax = new Date();
-    timeMax.setFullYear(timeMax.getFullYear() + 1);
+    if (past) {
+      timeMin.setFullYear(timeMin.getFullYear() - 1);
+      timeMax.setDate(timeMax.getDate() + 2);   // small overlap; the client trims it
+    } else {
+      timeMin.setDate(timeMin.getDate() - 2);   // keeps events running right now
+      timeMax.setFullYear(timeMax.getFullYear() + 1);
+    }
 
     const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CAL_ID)}/events`
-      + `?key=${API_KEY}&singleEvents=true&orderBy=startTime&maxResults=250`
+      + `?key=${API_KEY}&singleEvents=true&orderBy=startTime&maxResults=500`
       + `&timeMin=${encodeURIComponent(timeMin.toISOString())}`
       + `&timeMax=${encodeURIComponent(timeMax.toISOString())}`;
 
