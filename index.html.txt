@@ -473,6 +473,8 @@ const S = {
   riders: [], unlinked: [], riderIndex: [],
   events: null, eventDetail: null, myRiders: null,
   calEvents: null, calError: null, calSelectedId: null,
+  calPast: null, calPastError: null, calShowPast: false,
+  suBoards: null, suShowPast: false,
   rsvpData: null, rsvpRiders: null,
   isAdmin: false, screen: 'loading', history: [],
   viewRider: null, editing: null, linking: null,
@@ -572,6 +574,43 @@ function evtColor(e) {
 }
 function isTrainingEvent(e) {
   return (e.title || '').toLowerCase().includes('training');
+}
+/* ---- upcoming vs. past ---- */
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function todayStart() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+// A calendar event is past only once its LAST day is behind us, so a Friday-to-
+// Sunday race weekend stays on the upcoming list all the way through Sunday.
+function evtIsPast(e) { return evtLastDay(e) < todayStart(); }
+// Sign-up boards carry plain YYYY-MM-DD dates; END_DATE is inclusive.
+function suIsPast(b) {
+  const last = b.endDate || b.date || '';
+  if (!last) return false;
+  return new Date(last + 'T00:00:00') < todayStart();
+}
+function findCalEvent(id) {
+  return (S.calEvents || []).find(x => x.id === id)
+      || (S.calPast || []).find(x => x.id === id)
+      || null;
+}
+// A sign-up board belongs to a calendar event when their date ranges overlap.
+// Training events never get one. If more than one board overlaps, prefer the
+// board whose name shares the most words with the event title.
+function boardForEvent(e) {
+  if (!e || isTrainingEvent(e)) return null;
+  const evStart = ymd(e.allDay ? new Date(e.start + 'T00:00:00') : new Date(e.start));
+  const evEnd = ymd(evtLastDay(e));
+  const hits = (S.suBoards || []).filter(b => {
+    const bs = b.date || '';
+    if (!bs) return false;
+    return bs <= evEnd && (b.endDate || bs) >= evStart;
+  });
+  if (hits.length < 2) return hits[0] || null;
+  const words = t => new Set(String(t).toLowerCase().match(/[a-z0-9]+/g) || []);
+  const title = words(e.title);
+  const score = b => [...words(b.name)].filter(w => title.has(w)).length;
+  return hits.slice().sort((a, b) => score(b) - score(a))[0];
 }
 function fmtLocation(loc) {
   if (!loc) return '';
@@ -1103,12 +1142,25 @@ const SCREENS = {
 
   /* ---------- schedule (agenda) ---------- */
   schedule: () => {
-    if (S.calError) return `<h2>Schedule</h2><div class="empty">Couldn't load the calendar.<br>${esc(S.calError)}</div>`;
-    if (!S.calEvents) return '<div class="spinner"></div>';
-    if (!S.calEvents.length) return '<h2>Schedule</h2><div class="empty">No upcoming events.</div>';
-    let html = '<h2>Schedule</h2>';
+    const past = S.calShowPast;
+    const toggle = S.isAdmin
+      ? `<button class="btn alt slim" style="margin-bottom:14px" onclick="togglePastSchedule()">${
+          past ? '\u2190 Back to Upcoming' : '\u{1F553} Previous Events'}</button>`
+      : '';
+    if (past) {
+      if (S.calPastError) return `<h2>Past Events</h2>${toggle}<div class="empty">Couldn't load past events.<br>${esc(S.calPastError)}</div>`;
+      if (!S.calPast) return `<h2>Past Events</h2>${toggle}<div class="spinner"></div>`;
+    } else {
+      if (S.calError) return `<h2>Schedule</h2><div class="empty">Couldn't load the calendar.<br>${esc(S.calError)}</div>`;
+      if (!S.calEvents) return '<div class="spinner"></div>';
+    }
+    const list = (past ? S.calPast : S.calEvents).filter(e => evtIsPast(e) === past);
+    if (past) list.sort((a, b) => evtGroupDate(b) - evtGroupDate(a));
+    let html = `<h2>${past ? 'Past Events' : 'Schedule'}</h2>${toggle}`;
+    if (!list.length) return html + `<div class="empty">${
+      past ? 'No past events in the last 12 months.' : 'No upcoming events.'}</div>`;
     let lastKey = null;
-    for (const e of S.calEvents) {
+    for (const e of list) {
       const key = evtDayKey(e);
       if (key !== lastKey) { html += `<div class="day-label">${esc(evtDayLabel(e))}</div>`; lastKey = key; }
       html += `<div class="evt-card" style="background:${esc(evtColor(e))}" onclick="openScheduleDetail('${esc(e.id)}')">
@@ -1120,7 +1172,7 @@ const SCREENS = {
   },
 
   scheduleDetail: () => {
-    const e = (S.calEvents || []).find(x => x.id === S.calSelectedId);
+    const e = findCalEvent(S.calSelectedId);
     if (!e) return '<div class="spinner"></div>';
     const training = isTrainingEvent(e);
     const data = S.rsvpData || {};
@@ -1170,6 +1222,11 @@ const SCREENS = {
 
     if (training) {
       html += `<button class="btn outline slim" onclick="goPayTraining()">💲 Pay for Training</button>`;
+    } else {
+      const board = boardForEvent(e);
+      if (board) {
+        html += `<button class="btn outline slim" onclick="openEvent('${board.gid}')">📋 Sign-Up Sheet</button>`;
+      }
     }
 
     if (mine.length) {
@@ -1677,10 +1734,20 @@ const SCREENS = {
   /* ---------- sign-ups ---------- */
   signups: () => {
     if (!S.events) return '<div class="spinner"></div>';
-    if (!S.events.length) return `<h2>Sign-Ups</h2>
-      <div class="empty">No sign-up boards posted yet.</div>`;
-    let html = `<h2>Sign-Ups</h2><p class="sub">Tap a race to claim what you can bring.</p>`;
-    for (const e of S.events) {
+    const past = S.suShowPast;
+    const toggle = S.isAdmin
+      ? `<button class="btn alt slim" style="margin-bottom:14px" onclick="togglePastSignups()">${
+          past ? '\u2190 Back to Upcoming' : '\u{1F553} Previous Sign-Ups'}</button>`
+      : '';
+    const list = S.events.filter(e => suIsPast(e) === past);
+    if (past) list.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    let html = `<h2>${past ? 'Past Sign-Ups' : 'Sign-Ups'}</h2>
+      <p class="sub">${past
+        ? 'Boards from races that have already run.'
+        : 'Tap a race to claim what you can bring.'}</p>${toggle}`;
+    if (!list.length) html += `<div class="empty">${
+      past ? 'No past sign-up boards.' : 'No sign-up boards posted yet.'}</div>`;
+    for (const e of list) {
       const full = e.open === 0;
       html += `<div class="card${full ? ' done' : ''}" onclick="openEvent('${e.gid}')"
           style="display:flex;justify-content:space-between;align-items:center;gap:12px">
@@ -1691,7 +1758,7 @@ const SCREENS = {
         <span class="countbadge${full ? ' done' : ''}">${full ? '✓ FULL' : `${e.open} OPEN`}</span>
       </div>`;
     }
-    if (S.isAdmin) html += `<button class="btn alt slim" onclick="go('newEvent')">+ New Sign-Up Board</button>`;
+    if (S.isAdmin && !past) html += `<button class="btn alt slim" onclick="go('newEvent')">+ New Sign-Up Board</button>`;
     return html;
   },
 
@@ -1919,6 +1986,8 @@ async function tapTile(gid) {
 async function openSchedule() {
   go('schedule');
   S.calError = null;
+  S.calShowPast = false;
+  loadSignupBoardsQuietly();
   try {
     const r = await fetch('/api/calendar');
     const data = await r.json();
@@ -1951,7 +2020,7 @@ async function loadRsvpStatus(eventId) {
 }
 
 async function setRsvp(eventId, riderGid, going) {
-  const e = (S.calEvents || []).find(x => x.id === eventId);
+  const e = findCalEvent(eventId);
   const current = (S.rsvpData?.[riderGid] || {}).going || '';
   const next = current === going ? '' : going; // tapping the active option clears it
   try {
@@ -1967,7 +2036,7 @@ async function setRsvp(eventId, riderGid, going) {
 }
 
 async function setRsvpPaid(eventId, riderGid, paid) {
-  const e = (S.calEvents || []).find(x => x.id === eventId);
+  const e = findCalEvent(eventId);
   const current = (S.rsvpData?.[riderGid] || {}).paid || '';
   const next = current === paid ? '' : paid; // tapping the active option clears it
   try {
@@ -1988,6 +2057,34 @@ function goPayTraining() {
   else alert('The training payment link is not set yet.');
 }
 
+async function togglePastSchedule() {
+  S.calShowPast = !S.calShowPast;
+  render();
+  if (!S.calShowPast || S.calPast) return;
+  S.calPastError = null;
+  try {
+    const r = await fetch('/api/calendar?past=1');
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed to load past events');
+    S.calPast = data.events || [];
+  } catch (err) {
+    S.calPast = null;
+    S.calPastError = err.message;
+  }
+  render();
+}
+
+function togglePastSignups() { S.suShowPast = !S.suShowPast; render(); }
+
+// Sign-up boards power the "Sign-Up Sheet" button on race detail screens.
+async function loadSignupBoardsQuietly() {
+  if (S.suBoards) return;
+  try {
+    S.suBoards = (await api('signupEvents')).events || [];
+    if (S.screen === 'scheduleDetail') render();
+  } catch { S.suBoards = []; }
+}
+
 async function openRoster() {
   S.riders = []; S.unlinked = []; S.parentPool = []; go('roster');
   try {
@@ -2000,8 +2097,8 @@ async function openRoster() {
 }
 
 async function openSignups() {
-  S.events = null; go('signups');
-  try { S.events = (await api('signupEvents')).events; }
+  S.events = null; S.suShowPast = false; go('signups');
+  try { S.events = (await api('signupEvents')).events; S.suBoards = S.events; }
   catch (e) { S.events = []; alert(e.message); }
   render();
 }
