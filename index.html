@@ -203,6 +203,11 @@
   .jnote { font-size: 13.5px; margin-top: 6px; color: var(--muted); }
   .jnote.invoice { color: #a34e00; font-weight: 700; } .jnote.paid { color: #2a7000; font-weight: 700; }
   .banner.invoice { background: var(--black); }
+  .ordcard { display: flex; align-items: center; gap: 10px; }
+  .oeline { display: flex; flex-direction: column; gap: 8px; }
+  .oeline input, .oeline select { padding: 12px; font-size: 16px; }
+  .oehead { display: flex; justify-content: space-between; align-items: center; }
+  .oegrid { display: grid; grid-template-columns: 1.2fr .8fr 1fr; gap: 8px; }
   .banner.invoice .t1 { color: var(--orange); }
   .jinv-line { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15.5px; }
   .jinv-line small { display: block; color: var(--muted); font-size: 13.5px; }
@@ -906,6 +911,7 @@ async function loadMyRidersQuietly() {
     S.myRiders = r.riders;
     if (S.screen === 'home') render();
   } catch {}
+  loadMyInvoicesQuietly();
 }
 
 /* ============ render ============ */
@@ -1059,6 +1065,14 @@ const SCREENS = {
         <div class="t2">Tap to see what's included and pay</div></div>
       </button>`;
     }
+
+    (S.myInvoices || []).forEach((inv, i) => {
+      html += `<button class="banner invoice" onclick="viewInvoice(${i})">
+        <div class="bicon">🧾</div>
+        <div><div class="t1">${esc(inv.name)} · $${(inv.amount || 0).toFixed(2)} due</div>
+        <div class="t2">Team order invoice · tap to see it and pay</div></div>
+      </button>`;
+    });
 
     const jcfg = S.config.jersey || {};
     const needsJersey = list.filter(r => r.jerseyStatus !== 'Complete');
@@ -2010,10 +2024,7 @@ const SCREENS = {
   admin: () => `
     <h2>Admin</h2><p class="sub">Tap a tile to edit its link, order, and visibility.</p>
     <div class="sechead">Orders</div>
-    <div class="card" onclick="openJerseyAdmin()">
-      <div class="cname">Jersey Orders</div>
-      <div class="cmeta">Every jersey grouped by family, with what each one owes</div>
-    </div>
+    ${ordersAdminHtml()}
     <div class="sechead">Tiles</div>
     ${S.tiles.map(t => `<div class="card" onclick="editTile('${t.gid}')"
         style="display:flex;justify-content:space-between;align-items:center;gap:10px;overflow:hidden">
@@ -3638,6 +3649,240 @@ async function setRaceHelper(gid, on) {
   try { await rdApi('setHelper', { targetGid: gid, on }); }
   catch (e) { alert(e.message); loadRaceHelpers(); }
 }
+
+/* ============ team orders ============ */
+// Admin: any order placed for the team (pants, helmets, sponsor gear) with the same
+// invoice-by-family setup as jerseys. Families see a banner and an invoice to pay.
+const ORDER_PAY_URL = 'https://www.zeffy.com/en-US/donation-form/team-gear';
+const money = n => `$${(Number(n) || 0).toFixed(2)}`;
+
+async function loadOrders() {
+  S.ordersLoading = true;
+  try { S.orders = await api('adminOrders'); }
+  catch (e) { S.orders = { orders: [], jerseyArchived: false, error: e.message }; }
+  S.ordersLoading = false;
+  if (['admin', 'orderDetail'].includes(S.screen)) render();
+}
+
+function ordersAdminHtml() {
+  if (!S.orders) {
+    if (!S.ordersLoading) loadOrders();
+    return '<div class="cmeta" style="padding:4px 0">Loading orders…</div>';
+  }
+  const o = S.orders;
+  const card = (title, meta, open, archiveCall, archived) => `<div class="card ordcard" onclick="${open}">
+      <div style="flex:1;min-width:0"><div class="cname">${title}</div><div class="cmeta">${meta}</div></div>
+      <button class="btn tiny alt" onclick="event.stopPropagation();${archiveCall}">${archived ? 'Restore' : 'Archive'}</button>
+    </div>`;
+  let html = '';
+  if (o.error) html += `<div class="msg err">${esc(o.error)}</div>`;
+  if (!o.jerseyArchived) {
+    html += card('Jersey Orders', 'Every jersey grouped by family, with what each one owes',
+      'openJerseyAdmin()', `archiveOrder('jersey',true)`, false);
+  }
+  const meta = x => {
+    const owed = x.families.filter(f => f.status !== 'paid').reduce((n, f) => n + f.total, 0);
+    return esc([x.vendor, `${x.families.length} famil${x.families.length === 1 ? 'y' : 'ies'}`,
+      `${money(x.total)} total`, owed ? `${money(owed)} still owed` : 'all paid'].filter(Boolean).join(' · '));
+  };
+  for (const x of o.orders.filter(x => !x.archived)) {
+    html += card(esc(x.name), meta(x), `openOrder('${x.gid}')`, `archiveOrder('${x.gid}',true)`, false);
+  }
+  html += `<button class="btn slim" onclick="newOrder()">+ Add an Order</button>`;
+  const arch = o.orders.filter(x => x.archived);
+  const archCount = arch.length + (o.jerseyArchived ? 1 : 0);
+  if (archCount) {
+    html += `<button class="linkbtn" onclick="S.showArchived=!S.showArchived;render()">${S.showArchived ? 'Hide' : 'Show'} archived orders (${archCount})</button>`;
+    if (S.showArchived) {
+      if (o.jerseyArchived) html += card('Jersey Orders', 'Archived', 'openJerseyAdmin()', `archiveOrder('jersey',false)`, true);
+      for (const x of arch) html += card(esc(x.name), meta(x), `openOrder('${x.gid}')`, `archiveOrder('${x.gid}',false)`, true);
+    }
+  }
+  return html;
+}
+
+async function archiveOrder(orderGid, archived) {
+  const o = S.orders;
+  if (orderGid === 'jersey') o.jerseyArchived = archived;
+  else { const x = o.orders.find(y => y.gid === orderGid); if (x) x.archived = archived; }
+  render();
+  try { await api('adminArchiveOrder', { orderGid, archived }); }
+  catch (e) { alert(e.message); loadOrders(); }
+}
+
+function openOrder(orderGid) { S.orderGid = orderGid; go('orderDetail'); }
+function currentOrder() { return (S.orders?.orders || []).find(x => x.gid === S.orderGid); }
+
+async function ensureFamilies() {
+  if (S.families) return;
+  try { S.families = (await api('adminFamilies')).families; }
+  catch (e) { S.families = []; alert(e.message); }
+  if (S.screen === 'orderEdit') render();
+}
+
+function newOrder() {
+  S.orderEdit = { gid: '', name: '', vendor: '', payUrl: ORDER_PAY_URL, price: '', items: [] };
+  ensureFamilies(); go('orderEdit');
+}
+function editOrder() {
+  const x = currentOrder(); if (!x) return;
+  S.orderEdit = { gid: x.gid, name: x.name, vendor: x.vendor, payUrl: x.payUrl, price: '',
+    items: x.items.map(i => ({ ...i })) };
+  ensureFamilies(); go('orderEdit');
+}
+function oeSet(field, val) { S.orderEdit[field] = val; }
+function oeItem(i, field, val) {
+  const it = S.orderEdit.items[i];
+  it[field] = val;
+  if (field === 'familyKey') {
+    it.familyName = (S.families || []).find(f => f.key === val)?.name || '';
+    render();
+  }
+}
+function oeAdd() {
+  const e = S.orderEdit;
+  const last = e.items[e.items.length - 1];
+  e.items.push({ familyKey: last?.familyKey || '', familyName: last?.familyName || '', who: '',
+    item: last?.item || '', size: '', qty: 1, price: e.price || last?.price || '' });
+  render();
+}
+function oeRemove(i) { S.orderEdit.items.splice(i, 1); render(); }
+
+async function oeSave() {
+  const e = S.orderEdit;
+  const bad = e.items.findIndex(i => !i.familyKey || !String(i.item || '').trim());
+  if (!e.name.trim()) return msg('oeMsg', 'Give the order a name.');
+  if (bad >= 0) return msg('oeMsg', `Line ${bad + 1} needs a family and an item.`);
+  msg('oeMsg', 'Saving…', 'ok');
+  try {
+    const r = await api('adminSaveOrder', { orderGid: e.gid, name: e.name, vendor: e.vendor, payUrl: e.payUrl, items: e.items });
+    S.orderGid = r.gid;
+    await loadOrders();
+    // Editing came from the order page: replace both so Back returns to Admin.
+    if (e.gid && S.history[S.history.length - 1] === 'orderDetail') S.history.pop();
+    S.orderEdit = null;
+    go('orderDetail', false);
+  } catch (err) { msg('oeMsg', err.message); }
+}
+
+async function orderStatus(familyKey, status) {
+  const x = currentOrder(); if (!x) return;
+  const f = x.families.find(y => y.key === familyKey); if (!f) return;
+  const prev = { status: f.status, date: f.date };
+  f.status = status; f.date = new Date().toISOString().slice(0, 10);
+  x.paid = x.families.filter(y => y.status === 'paid').reduce((n, y) => n + y.total, 0);
+  const top = document.getElementById('view').scrollTop;
+  render(); document.getElementById('view').scrollTop = top;
+  try { await api('adminOrderStatus', { orderGid: x.gid, familyKey, status }); }
+  catch (e) { Object.assign(f, prev); alert(e.message); render(); }
+}
+
+function orderCsv() {
+  const x = currentOrder(); if (!x) return;
+  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = [['Family', 'For', 'Item', 'Size', 'Qty', 'Price Each', 'Amount', 'Family Status']];
+  for (const f of x.families) {
+    const st = f.status === 'paid' ? `Paid ${f.date}` : f.status === 'invoice' ? `Invoiced ${f.date}` : 'Not invoiced';
+    for (const l of f.lines) rows.push([f.name, l.who, l.item, l.size, l.qty, Number(l.price).toFixed(2), ((l.qty || 1) * l.price).toFixed(2), st]);
+  }
+  rows.push([]);
+  rows.push(['TOTAL', '', '', '', x.items.reduce((n, l) => n + (Number(l.qty) || 1), 0), '', x.total.toFixed(2), '']);
+  const blob = new Blob([rows.map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${x.name.replace(/[^\w\- ]+/g, '').trim() || 'order'}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ---- family side: invoices for team orders ---- */
+async function loadMyInvoicesQuietly() {
+  try {
+    S.myInvoices = (await api('myInvoices')).invoices || [];
+    if (S.screen === 'home') render();
+  } catch {}
+}
+function viewInvoice(i) { S.viewInvoice = (S.myInvoices || [])[i]; go('orderInvoice'); }
+
+Object.assign(SCREENS, {
+  orderDetail: () => {
+    if (!S.orders) { if (!S.ordersLoading) loadOrders(); return '<div class="spinner"></div>'; }
+    const x = currentOrder();
+    if (!x) return '<div class="empty">Order not found.</div>';
+    const owed = x.total - x.paid;
+    let html = `<h2>${esc(x.name)}</h2>
+      <p class="sub">${x.vendor ? esc(x.vendor) + ' · ' : ''}${x.items.reduce((n, l) => n + (Number(l.qty) || 1), 0)} items · ${money(x.total)} to invoice<br>
+      <b style="color:#2a7000">${money(x.paid)} paid</b> · <b style="color:#a34e00">${money(owed)} still owed</b></p>
+      <button class="btn alt slim" style="margin-top:0" onclick="editOrder()">Edit Order</button>
+      <div class="sechead">By Family</div>`;
+    if (!x.families.length) html += '<div class="empty">No lines yet. Tap Edit Order to add them.</div>';
+    for (const f of x.families) {
+      html += `<div class="famblock"><div class="fname">${esc(f.name)}</div><div style="height:8px"></div>`;
+      for (const l of f.lines) {
+        const bits = [l.item, l.size, (l.qty || 1) > 1 ? `×${l.qty}` : ''].filter(Boolean).join(' · ');
+        html += `<div class="famline"><span class="fl">${esc(l.who || f.name)}</span><span class="fr">${esc(bits)} · ${money((l.qty || 1) * l.price)}</span></div>`;
+      }
+      const note = f.status === 'paid' ? `✓ Paid ${esc(jsDay(f.date))}`
+        : f.status === 'invoice' ? `Invoiced ${esc(jsDay(f.date))} · ${money(f.total)} · showing in their app` : 'Not invoiced yet';
+      html += `<div class="famtot"><span>${f.lines.reduce((n, l) => n + (Number(l.qty) || 1), 0)} items</span><span>${money(f.total)}</span></div>
+        <div class="jseg">${[['none', 'NEITHER'], ['invoice', 'INVOICE'], ['paid', 'PAID']].map(([k, l]) =>
+          `<button class="${f.status === k ? 'on ' + k : ''}" onclick="orderStatus('${f.key}','${k}')">${l}</button>`).join('')}</div>
+        <div class="jnote ${f.status}">${note}</div></div>`;
+    }
+    html += `<button class="btn" onclick="orderCsv()">Download CSV File</button>
+      <button class="btn alt slim" onclick="archiveOrder('${x.gid}',${!x.archived});goBack()">${x.archived ? 'Restore Order' : 'Archive Order'}</button>`;
+    return html;
+  },
+
+  orderEdit: () => {
+    const e = S.orderEdit;
+    if (!e) return '<div class="empty">Nothing to edit.</div>';
+    const fams = S.families;
+    let html = `<h2>${e.gid ? 'Edit Order' : 'Add an Order'}</h2>
+      <p class="sub">One line per item. Families are invoiced for their lines, the same way as jerseys.</p>
+      <label>Order name</label><input value="${esc(e.name)}" placeholder="Team pants" oninput="oeSet('name',this.value)">
+      <label>Sponsor or vendor</label><input value="${esc(e.vendor)}" placeholder="Optional" oninput="oeSet('vendor',this.value)">
+      <label>Payment link</label><input value="${esc(e.payUrl)}" oninput="oeSet('payUrl',this.value)">
+      <label>Price each (fills new lines)</label><input inputmode="decimal" value="${esc(e.price)}" placeholder="0.00" oninput="oeSet('price',this.value)">
+      <div class="sechead">Lines (${e.items.length})</div>`;
+    if (!fams) html += '<div class="cmeta">Loading families…</div>';
+    e.items.forEach((it, i) => {
+      const fam = (fams || []).find(f => f.key === it.familyKey);
+      html += `<div class="famblock oeline">
+        <div class="oehead"><b>Line ${i + 1}</b><button class="btn tiny alt" onclick="oeRemove(${i})">Remove</button></div>
+        <select onchange="oeItem(${i},'familyKey',this.value)">
+          <option value="">Pick a family…</option>
+          ${(fams || []).map(f => `<option value="${f.key}" ${f.key === it.familyKey ? 'selected' : ''}>${esc(f.name)}${f.riders.length ? ' (' + esc(f.riders.map(n => n.split(' ')[0]).join(', ')) + ')' : ''}</option>`).join('')}
+        </select>
+        <input list="oewho${i}" value="${esc(it.who)}" placeholder="For (rider or person)" oninput="oeItem(${i},'who',this.value)">
+        <datalist id="oewho${i}">${(fam?.riders || []).map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+        <input value="${esc(it.item)}" placeholder="Item (e.g. Pants)" oninput="oeItem(${i},'item',this.value)">
+        <div class="oegrid">
+          <input value="${esc(it.size)}" placeholder="Size" oninput="oeItem(${i},'size',this.value)">
+          <input inputmode="numeric" value="${esc(it.qty)}" placeholder="Qty" oninput="oeItem(${i},'qty',this.value)">
+          <input inputmode="decimal" value="${esc(it.price)}" placeholder="Price" oninput="oeItem(${i},'price',this.value)">
+        </div></div>`;
+    });
+    html += `<button class="btn alt slim" onclick="oeAdd()">+ Add a Line</button>
+      <button class="btn" onclick="oeSave()">${e.gid ? 'Save Changes' : 'Create Order'}</button><div id="oeMsg"></div>`;
+    return html;
+  },
+
+  orderInvoice: () => {
+    const v = S.viewInvoice;
+    if (!v) return '<div class="msg ok" style="font-weight:700">✓ Nothing owed.</div>';
+    let html = `<h2>${esc(v.name)}</h2><p class="sub">Team order invoice${v.vendor ? ' · ' + esc(v.vendor) : ''}${v.date ? ` · sent ${esc(jsDay(v.date))}` : ''}</p>
+      <div class="famblock">`;
+    for (const l of v.lines) {
+      const bits = [l.size, (l.qty || 1) > 1 ? `×${l.qty}` : ''].filter(Boolean).join(' · ');
+      html += `<div class="jinv-line"><span>${esc(l.item)}${l.who ? ` · ${esc(l.who)}` : ''}${bits ? `<small>${esc(bits)}</small>` : ''}</span>
+        <span>${money((l.qty || 1) * l.price)}</span></div>`;
+    }
+    html += `<div class="jinv-tot"><span>Amount due</span><span>${money(v.amount)}</span></div></div>
+      <button class="btn orange" onclick="openExternal('${esc(v.payUrl || ORDER_PAY_URL)}')">Pay on Zeffy</button>
+      <p class="sub" style="margin-top:14px">Once Michelle marks it paid, this invoice disappears from your app.</p>`;
+    return html;
+  },
+});
 </script>
 </body>
 </html>
