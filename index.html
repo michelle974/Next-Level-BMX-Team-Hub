@@ -587,6 +587,9 @@
   .rd-moveup { color: #ffcc00 !important; font-size: 12.5px !important; font-weight: 800 !important; letter-spacing: .5px; }
   .rd-suggest { height: 44px; border-radius: 10px; border: 2px solid #38f100; background: #0a0a0a; color: #38f100;
     font-size: 15px; font-weight: 800; letter-spacing: 1px; }
+  .rd-suggestrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .rd-suggest.clear { border-color: #5a5a5a; color: #bdbdbd; }
+  .rd-suggest:disabled { opacity: .35; }
   .rd-tag { font-size: 11px; font-weight: 800; letter-spacing: 1px; }
   .rd-edit { border-radius: 10px; border: 2px solid #ff5500; background: #1f1208; padding: 10px 12px;
     display: flex; flex-direction: column; gap: 8px; }
@@ -3395,8 +3398,20 @@ async function rdSuggest() {
   const s2 = rdBestSheet(cands, new Set(s1.map(c => c.key)));
   const picks = { s1: s1.map(c => ({ id: c.id, type: c.type })), s2: s2.map(c => ({ id: c.id, type: c.type })) };
   const prev = d.picks;
+  S.rd.beforeSuggest = { day: S.rd.day, picks: prev };
   d.picks = picks; rdRender();
   try { await rdApi('picks', { picks }); }
+  catch (e) { d.picks = prev; S.rd.beforeSuggest = null; S.rd.err = e.message; rdRender(); }
+}
+
+// Undo the suggestion: back to the picks made before it, or empty sheets.
+async function rdClearSuggest() {
+  const d = S.rd.data;
+  if (d.locked) return;
+  const back = S.rd.beforeSuggest?.day === S.rd.day ? S.rd.beforeSuggest.picks : { s1: [], s2: [] };
+  const prev = d.picks;
+  d.picks = back; S.rd.beforeSuggest = null; rdRender();
+  try { await rdApi('picks', { picks: back }); }
   catch (e) { d.picks = prev; S.rd.err = e.message; rdRender(); }
 }
 
@@ -3421,7 +3436,10 @@ function rdAdminHtml() {
   <div class="rd-note">${d.locked ? 'Sheets are turned in. Scores still fill in after the race. Tap LOCKED to change picks.'
     : d.loaded ? 'Picks match what each rider raced. A picked class they did not race scores 0. Best 4 count.'
     : 'Pick before motos post. Tap a name to change that rider’s classes.'}</div>
-  ${d.locked ? '' : `<button class="rd-suggest" onclick="rdSuggest()">SUGGEST SHEETS FROM PREDICTIONS</button>`}`;
+  ${d.locked ? '' : `<div class="rd-suggestrow">
+    <button class="rd-suggest" onclick="rdSuggest()">SUGGEST SHEETS</button>
+    <button class="rd-suggest clear" onclick="rdClearSuggest()" ${d.picks.s1.length || d.picks.s2.length ? '' : 'disabled'}>REMOVE SUGGESTIONS</button>
+  </div>`}`;
 
   if (S.rd.editing) {
     const rr = d.roster.find(r => r.id === S.rd.editing);
