@@ -194,8 +194,19 @@
   .famline .fl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .famline .fr { font-weight: 700; flex-shrink: 0; }
   .famline.miss .fl, .famline.miss .fr { color: var(--red); }
-  .jpay { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
-  .jpay .btn { white-space: nowrap; flex-shrink: 0; }
+  .jseg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
+  .jseg button { padding: 10px 4px; border-radius: 10px; border: 2px solid var(--line); background: #fff;
+    font-family: inherit; font-size: 13px; font-weight: 800; letter-spacing: .5px; color: var(--muted); cursor: pointer; }
+  .jseg button.on.none { background: #eee; border-color: #bbb; color: #333; }
+  .jseg button.on.invoice { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .jseg button.on.paid { background: var(--green); border-color: var(--green); color: #0a2b00; }
+  .jnote { font-size: 13.5px; margin-top: 6px; color: var(--muted); }
+  .jnote.invoice { color: #a34e00; font-weight: 700; } .jnote.paid { color: #2a7000; font-weight: 700; }
+  .banner.invoice { background: var(--black); }
+  .banner.invoice .t1 { color: var(--orange); }
+  .jinv-line { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15.5px; }
+  .jinv-line small { display: block; color: var(--muted); font-size: 13.5px; }
+  .jinv-tot { display: flex; justify-content: space-between; padding: 14px 0 0; font-size: 20px; font-weight: 800; }
   .famtot {
     display: flex; justify-content: space-between; border-top: 2px solid var(--line);
     margin-top: 8px; padding-top: 9px; font-size: 15px; font-weight: 800;
@@ -1040,6 +1051,15 @@ const SCREENS = {
       </button>`;
     }
 
+    const invAmt = parseFloat((S.fields || {}).JERSEY_INVOICE_AMOUNT || '0') || 0;
+    if (invAmt > 0) {
+      html += `<button class="banner invoice" onclick="go('jerseyInvoice')">
+        <div class="bicon">🧾</div>
+        <div><div class="t1">Jersey Invoice · $${invAmt.toFixed(2)} due</div>
+        <div class="t2">Tap to see what's included and pay</div></div>
+      </button>`;
+    }
+
     const jcfg = S.config.jersey || {};
     const needsJersey = list.filter(r => r.jerseyStatus !== 'Complete');
     if (jcfg.open !== false && needsJersey.length) {
@@ -1834,6 +1854,26 @@ const SCREENS = {
       <div id="ajMsg"></div>`;
   },
 
+  jerseyInvoice: () => {
+    const f = S.fields || {};
+    const amt = parseFloat(f.JERSEY_INVOICE_AMOUNT || '0') || 0;
+    if (!amt) return `<h2>Jersey Invoice</h2><div class="msg ok" style="font-weight:700">✓ Nothing owed for jerseys.</div>`;
+    let lines = [];
+    try { lines = JSON.parse(f.JERSEY_INVOICE_DETAIL || '[]'); } catch {}
+    const url = (S.config.jersey || {}).payUrl || 'https://www.zeffy.com/en-US/donation-form/team-gear';
+    let html = `<h2>Jersey Invoice</h2><p class="sub">Team jerseys${f.JERSEY_INVOICE_DATE ? ` · sent ${esc(jsDay(f.JERSEY_INVOICE_DATE))}` : ''}</p>
+      <div class="famblock">`;
+    for (const l of lines) {
+      const bits = [l.size, l.number && `#${l.number}`, l.name && l.name !== 'NONE' ? l.name : '', l.qty > 1 ? `×${l.qty}` : ''].filter(Boolean).join(' · ');
+      html += `<div class="jinv-line"><span>${esc(l.who)}${bits ? `<small>${esc(bits)}</small>` : ''}</span>
+        <span>${l.amount < 0 ? '−' : ''}$${Math.abs(l.amount || 0).toFixed(2)}</span></div>`;
+    }
+    html += `<div class="jinv-tot"><span>Amount due</span><span>$${amt.toFixed(2)}</span></div></div>
+      <button class="btn orange" onclick="openExternal('${esc(url)}')">Pay on Zeffy</button>
+      <p class="sub" style="margin-top:14px">Pay the amount due on the team gear page. Once Michelle marks it paid, this invoice disappears from your app.</p>`;
+    return html;
+  },
+
   jerseyAdmin: () => {
     const d = S.jerseyAdmin;
     if (!d) return '<div class="spinner"></div>';
@@ -1881,17 +1921,13 @@ const SCREENS = {
       if (f.total > 0) {
         const paid = f.paidAmount || 0;
         const owed = Math.max(0, f.total - paid);
-        const when = f.paidDate ? ' ' + esc(jsDay(f.paidDate)) : '';
-        if (paid && !owed) {
-          html += `<div class="jpay"><span class="pill ok">✓ PAID${when}</span>
-            <button class="btn tiny alt" onclick="jsMarkPaid('${f.key}', 0, true)">Undo</button></div>`;
-        } else if (paid) {
-          html += `<div class="jpay"><span class="pill wait">PAID $${paid.toFixed(2)} · $${owed.toFixed(2)} MORE OWED</span>
-            <button class="btn tiny" onclick="jsMarkPaid('${f.key}', ${f.total})">Mark Paid</button></div>`;
-        } else {
-          html += `<div class="jpay"><span class="pill grey">UNPAID</span>
-            <button class="btn tiny" onclick="jsMarkPaid('${f.key}', ${f.total})">Mark Paid</button></div>`;
-        }
+        const st = paid && !owed ? 'paid' : f.invoiceAmount ? 'invoice' : 'none';
+        const note = st === 'paid' ? `✓ Paid ${esc(jsDay(f.paidDate))}`
+          : st === 'invoice' ? `Invoiced ${esc(jsDay(f.invoiceDate))} · $${f.invoiceAmount.toFixed(2)} · showing in their app`
+          : paid ? `Paid $${paid.toFixed(2)} · $${owed.toFixed(2)} more owed` : 'Not invoiced yet';
+        html += `<div class="jseg">${[['none', 'NEITHER'], ['invoice', 'INVOICE'], ['paid', 'PAID']].map(([k, l]) =>
+            `<button class="${st === k ? 'on ' + k : ''}" onclick="jsSetStatus('${f.key}','${k}')">${l}</button>`).join('')}</div>
+          <div class="jnote ${st}">${note}</div>`;
       }
       html += `</div>`;
     }
@@ -2533,22 +2569,31 @@ async function saveAdminJersey(clear) {
   } catch (err) { msg('ajMsg', err.message); }
 }
 
-// Admin: tick off a family's jersey payment (or undo it).
-async function jsMarkPaid(familyKey, amount, unpay) {
-  const f = (S.jerseyAdmin?.families || []).find(x => x.key === familyKey);
+// Admin: set a family's jersey status. INVOICE puts a banner in their app with
+// what they owe and the Zeffy link; PAID clears it; NEITHER clears both.
+async function jsSetStatus(familyKey, status) {
+  const d = S.jerseyAdmin;
+  const f = (d?.families || []).find(x => x.key === familyKey);
   if (!f) return;
-  const prev = { paidAmount: f.paidAmount, paidDate: f.paidDate };
-  f.paidAmount = unpay ? 0 : amount;
-  f.paidDate = unpay ? '' : new Date().toISOString().slice(0, 10);
-  S.jerseyAdmin.grandPaid = S.jerseyAdmin.families.reduce((n, x) => n + Math.min(x.paidAmount || 0, x.total), 0);
+  const owed = Math.max(0, f.total - (f.paidAmount || 0));
+  const detail = [
+    ...f.riders.filter(r => r.done).map(r => ({ who: r.name, size: r.size, number: r.number, name: r.backName, qty: r.qty || 1, amount: (r.qty || 1) * d.price })),
+    ...f.extras.map(e => ({ who: 'Extra', size: e.size, number: e.number, name: e.name, qty: e.qty, amount: e.qty * d.price })),
+  ];
+  if (f.paidAmount && owed < f.total) detail.push({ who: 'Already paid', amount: -f.paidAmount });
+  const prev = { paidAmount: f.paidAmount, paidDate: f.paidDate, invoiceAmount: f.invoiceAmount, invoiceDate: f.invoiceDate };
+  const today = new Date().toISOString().slice(0, 10);
+  if (status === 'invoice') { f.invoiceAmount = owed || f.total; f.invoiceDate = today; }
+  else if (status === 'paid') { f.paidAmount = f.total; f.paidDate = today; f.invoiceAmount = 0; f.invoiceDate = ''; }
+  else { f.paidAmount = 0; f.paidDate = ''; f.invoiceAmount = 0; f.invoiceDate = ''; }
+  const sum = () => { d.grandPaid = d.families.reduce((n, x) => n + Math.min(x.paidAmount || 0, x.total), 0); };
+  sum();
   const top = document.getElementById('view').scrollTop;
   render(); document.getElementById('view').scrollTop = top;
-  try { await api('adminJerseyPaid', { familyKey, amount, unpay: !!unpay }); }
-  catch (e) {
-    Object.assign(f, prev);
-    S.jerseyAdmin.grandPaid = S.jerseyAdmin.families.reduce((n, x) => n + Math.min(x.paidAmount || 0, x.total), 0);
-    alert(e.message); render();
-  }
+  try {
+    await api('adminJerseyStatus', { familyKey, taskGids: f.taskGids || [], status,
+      amount: status === 'paid' ? f.total : (owed || f.total), detail });
+  } catch (e) { Object.assign(f, prev); sum(); alert(e.message); render(); }
 }
 
 async function openJerseyAdmin() {
@@ -2565,7 +2610,9 @@ function jsCsv() {
   const rows = [['Family', 'Email', 'Phone', 'Jersey For', 'Size', 'Number', 'Back Name', 'Qty', 'Amount', 'Family Paid']];
   for (const f of d.families) {
     const owed = Math.max(0, f.total - (f.paidAmount || 0));
-    const st = !f.total ? '' : !f.paidAmount ? 'Unpaid' : owed ? `Paid ${f.paidAmount.toFixed(2)}, owes ${owed.toFixed(2)}` : `Paid ${f.paidDate}`;
+    const st = !f.total ? '' : f.paidAmount && !owed ? `Paid ${f.paidDate}`
+      : f.invoiceAmount ? `Invoiced ${f.invoiceDate} (${f.invoiceAmount.toFixed(2)})`
+      : f.paidAmount ? `Paid ${f.paidAmount.toFixed(2)}, owes ${owed.toFixed(2)}` : 'Unpaid';
     for (const r of f.riders) {
       if (!r.done) continue;
       rows.push([f.contact.name, f.contact.email, fmtPhone(f.contact.phone),

@@ -404,6 +404,7 @@ export default async function handler(req, res) {
               price: parseFloat(cfg.JERSEY_PRICE || '25') || 0,
               nameMax: parseInt(cfg.JERSEY_NAME_MAX || '0', 10),
               heading: cfg.JERSEY_HEADING || 'Jersey Sizing',
+              payUrl: cfg.JERSEY_PAY_URL || 'https://www.zeffy.com/en-US/donation-form/team-gear',
               sub: cfg.JERSEY_SUB || '',
               sizes: (cfg.JERSEY_SIZES || JERSEY_SIZES_DEFAULT)
                 .split(',').map(x => x.trim()).filter(Boolean),
@@ -915,6 +916,9 @@ export default async function handler(req, res) {
             total: (riderQty + extraQty) * price,
             paidAmount: parseFloat(kf.JERSEY_PAID_AMOUNT || '0') || 0,
             paidDate: kf.JERSEY_PAID_DATE || '',
+            invoiceAmount: parseFloat(kf.JERSEY_INVOICE_AMOUNT || '0') || 0,
+            invoiceDate: kf.JERSEY_INVOICE_DATE || '',
+            taskGids: [...h.taskGids],
           });
         }
         families.sort((a, b) => (a.contact.name || '').localeCompare(b.contact.name || ''));
@@ -938,6 +942,34 @@ export default async function handler(req, res) {
           grandTotal: families.reduce((n, f) => n + f.total, 0),
           grandPaid: families.reduce((n, f) => n + Math.min(f.paidAmount, f.total), 0),
         });
+      }
+
+      // Family jersey status: none, invoice (banner in their app) or paid.
+      // The invoice is written to every account in the family so whoever logs in sees it;
+      // paid lives on the family's key task.
+      case 'adminJerseyStatus': {
+        const { gid, session, familyKey, taskGids, status, amount, detail } = body;
+        await requireAdmin(gid, session);
+        if (!familyKey || !['none', 'invoice', 'paid'].includes(status)) {
+          return res.status(400).json({ error: 'Missing family or status.' });
+        }
+        const today = new Date().toISOString().slice(0, 10);
+        const all = [...new Set([familyKey, ...(Array.isArray(taskGids) ? taskGids : [])])];
+        const clearInv = { JERSEY_INVOICE_AMOUNT: '', JERSEY_INVOICE_DATE: '', JERSEY_INVOICE_DETAIL: '' };
+        if (status === 'invoice') {
+          const inv = {
+            JERSEY_INVOICE_AMOUNT: String(parseFloat(amount) || 0),
+            JERSEY_INVOICE_DATE: today,
+            JERSEY_INVOICE_DETAIL: JSON.stringify(Array.isArray(detail) ? detail.slice(0, 40) : []).replace(/\n/g, ' '),
+          };
+          for (const t of all) await patchTask(t, inv);
+        } else {
+          for (const t of all) await patchTask(t, clearInv);
+          await patchTask(familyKey, status === 'paid'
+            ? { JERSEY_PAID_AMOUNT: String(parseFloat(amount) || 0), JERSEY_PAID_DATE: today }
+            : { JERSEY_PAID_AMOUNT: '', JERSEY_PAID_DATE: '' });
+        }
+        return res.json({ ok: true });
       }
 
       // Mark a family's jersey order paid (records the amount, so later extras show as still owed).
