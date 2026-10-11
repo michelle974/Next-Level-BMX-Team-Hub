@@ -575,12 +575,18 @@
   .rd-pick { display: flex; align-items: center; gap: 8px; border-radius: 10px; background: #161616;
     border: 2px solid #161616; padding: 6px 8px 6px 12px; }
   .rd-pick .rd-who { cursor: pointer; }
+  .rd-pick .rd-who span { white-space: normal; overflow: visible; line-height: 1.15; }
   .rd-pts { width: 44px; text-align: right; font-size: 24px; font-weight: 800; font-style: italic; }
   .rd-sbtn { width: 44px; height: 44px; border-radius: 8px; border: 2px solid #333; background: #0a0a0a;
     color: #bdbdbd; font-size: 16px; font-weight: 800; }
   .rd-sbtn:disabled { color: #3a3a3a; border-color: #1c1c1c; }
   .rd-sbtn.s1 { background: #38f100; border-color: #38f100; color: #0a0a0a; }
   .rd-sbtn.s2 { background: #ff5500; border-color: #ff5500; color: #0a0a0a; }
+  .rd-pred { display: block; font-size: 13px; font-weight: 700; color: #8f8f8f; margin-top: 2px; }
+  .rd-pts i { font-style: italic; color: #8f8f8f; }
+  .rd-moveup { color: #ffcc00 !important; font-size: 12.5px !important; font-weight: 800 !important; letter-spacing: .5px; }
+  .rd-suggest { height: 44px; border-radius: 10px; border: 2px solid #38f100; background: #0a0a0a; color: #38f100;
+    font-size: 15px; font-weight: 800; letter-spacing: 1px; }
   .rd-tag { font-size: 11px; font-weight: 800; letter-spacing: 1px; }
   .rd-edit { border-radius: 10px; border: 2px solid #ff5500; background: #1f1208; padding: 10px 12px;
     display: flex; flex-direction: column; gap: 8px; }
@@ -3214,6 +3220,111 @@ async function rdFlipClass(id, type) {
   } catch (e) { S.rd.err = e.message; rdLoad(); }
 }
 
+/* ---- ADMIN: pick predictions ----
+   Expected points = chance of making the main x (rider count + expected main points).
+   Built from last season's tracker plus this season's finished days, recent races
+   weighted heavier. A rider who moved up an age group or level since their last
+   race in that class is flagged and their history counts for less. */
+const rdBand = code => {
+  const m = String(code || '').match(/(\d+)(?:\s*-\s*(\d+))?/);
+  return m ? [Number(m[1]), Number(m[2] || m[1])] : null;
+};
+const rdLvlOf = code => {
+  const m = String(code || '').toLowerCase().match(/(gx|gi|gn|n|i|x)\s*$/);
+  return m ? m[1].replace(/^g(?=[in])/, '') : '';
+};
+const RD_LVL_NAME = { n: 'Novice', i: 'Intermediate', x: 'Expert', gx: 'Girl Expert' };
+
+function rdRaceDate() {
+  const d = S.rd.data?.day?.date;
+  return d ? new Date(`${d}T12:00:00`) : new Date();
+}
+
+// Class code the rider races on this day: from the live motos once loaded,
+// otherwise worked out from birthday (USA BMX age = age on Dec 31) and proficiency.
+function rdCurrentCode(id, type) {
+  const d = S.rd.data;
+  const e = d.entries?.[id]?.races?.[type];
+  if (e) return String(e.code || '').toLowerCase();
+  const rr = (d.roster || []).find(r => r.id === id);
+  if (!rr || !rr.dob || type === 'open') return '';
+  const age = rdRaceDate().getFullYear() - Number(rr.dob.slice(0, 4));
+  if (type === 'cruiser') return `${age}c`;
+  const p = (rr.proficiency || '').toLowerCase();
+  const lvl = /girl/.test(p) ? 'gx' : /nov/.test(p) ? 'n' : /int/.test(p) ? 'i' : /exp/.test(p) ? 'x' : '';
+  return lvl ? `${age}${lvl}` : '';
+}
+
+function rdMoveUp(id, type, rows) {
+  const last = rows.length ? rows[rows.length - 1][2] : '';
+  const now = rdCurrentCode(id, type);
+  if (!last || !now) return null;
+  const was = rdBand(last), is = rdBand(now);
+  const notes = [];
+  if (was && is && is[0] > was[1]) notes.push('age');
+  const lw = rdLvlOf(last), ln = rdLvlOf(now);
+  const rank = { n: 0, i: 1, x: 2, gx: 2 };
+  if (type === 'class' && lw && ln && rank[ln] > rank[lw]) notes.push('level');
+  return notes.length ? { from: last, to: now, why: notes } : null;
+}
+
+function rdPredict(id, type) {
+  const d = S.rd.data;
+  if (d.loaded && !d.entries[id]?.races[type]) return { exp: 0, none: true };
+  // Oldest to newest. Within last season's tracker, the younger age group came first.
+  const rows = [...((d.history || {})[id]?.[type] || [])]
+    .map((r, i) => ({ r, i, age: (rdBand(r[2]) || [0])[0], lv: { n: 0, i: 1, x: 2, gx: 2 }[rdLvlOf(r[2])] ?? 1 }))
+    .sort((a, b) => a.age - b.age || a.lv - b.lv || a.i - b.i).map(x => x.r);
+  const mv = rdMoveUp(id, type, rows);
+  const code = rdCurrentCode(id, type);
+  const rr = (d.roster || []).find(r => r.id === id);
+  let lvl = rdLevel(type, code);
+  if (!lvl) {
+    const p = (rr?.proficiency || '').toLowerCase();
+    lvl = /girl/.test(p) ? 'GX' : /nov/.test(p) ? 'N' : /int/.test(p) ? 'I' : 'X';
+  }
+  let w = 0, wMain = 0, wPts = 0, wPlace = 0, wCount = 0;
+  rows.forEach(([count, place], i) => {
+    const k = Math.pow(0.85, rows.length - 1 - i);
+    w += k; wCount += k * count;
+    if (place) { wMain += k; wPts += k * RD_PTS[lvl][place]; wPlace += k * place; }
+  });
+  // Few races = lean toward an even chance; a move-up halves what history is worth.
+  const trust = mv ? 0.5 : 1;
+  let pMain = (wMain * trust + 1) / (w * trust + 2);
+  let place = wMain ? wPlace / wMain : 5;
+  if (mv) { pMain *= 0.85; place = Math.min(8, place + 1); }
+  const fp = !wMain ? RD_PTS[lvl][5] : mv ? RD_PTS[lvl][Math.round(place)] : wPts / wMain;
+  const real = d.entries?.[id]?.races?.[type]?.count;
+  const count = real || (w ? Math.round(wCount / w) : 10);
+  return { exp: Math.round(pMain * (count + fp)), pMain, place, n: rows.length, count, realCount: !!real, mv };
+}
+
+// Fill both sheets with the highest predicted picks, following the sheet rules.
+async function rdSuggest() {
+  const d = S.rd.data;
+  if (d.locked) return;
+  if ((d.picks.s1.length || d.picks.s2.length) &&
+      !confirm('Replace the current picks with the suggested sheets?')) return;
+  const cands = rdAdminRows()
+    .map(r => ({ ...r, p: rdPredict(r.id, r.type) }))
+    .filter(r => r.p.exp > 0)
+    .sort((a, b) => b.p.exp - a.p.exp);
+  const picks = { s1: [], s2: [] };
+  const used = new Set();
+  for (const list of [picks.s1, picks.s2]) {
+    for (const c of cands) {
+      if (list.length >= 6) break;
+      if (used.has(c.key) || list.some(x => x.id === c.id)) continue;
+      list.push({ id: c.id, type: c.type }); used.add(c.key);
+    }
+  }
+  const prev = d.picks;
+  d.picks = picks; rdRender();
+  try { await rdApi('picks', { picks }); }
+  catch (e) { d.picks = prev; S.rd.err = e.message; rdRender(); }
+}
+
 function rdAdminHtml() {
   const d = S.rd.data;
   if (!d.roster) return '<div class="rd-wait">Admins only.</div>';
@@ -3222,17 +3333,20 @@ function rdAdminHtml() {
     const on = rows.filter(r => rdSheetOf(r.key) === n);
     const vals = on.filter(r => r.s.pts !== undefined).map(r => r.s.pts).sort((a, b) => b - a);
     const top4 = vals.slice(0, 4);
-    return { n, on, total: top4.reduce((a, b) => a + b, 0), cutoff: top4.length === 4 ? top4[3] : 0 };
+    const pred = on.map(r => rdPredict(r.id, r.type).exp).sort((a, b) => b - a).slice(0, 4).reduce((a, b) => a + b, 0);
+    return { n, on, total: top4.reduce((a, b) => a + b, 0), cutoff: top4.length === 4 ? top4[3] : 0, pred };
   });
   const dayName = RD_DAYNAME[d.day?.day] || 'Today';
   let html = `<div class="rd-sheets">
     ${sheet.map(s => `<div class="rd-stat ${s.n === 1 ? 'g' : ''}" style="${s.n === 2 ? 'border-color:#ff5500;background:#1f1208' : ''}">
-      <small style="${s.n === 2 ? 'color:#ff5500' : ''}">SHEET ${s.n} · ${s.on.length}/6</small><b>${s.total}</b></div>`).join('')}
+      <small style="${s.n === 2 ? 'color:#ff5500' : ''}">SHEET ${s.n} · ${s.on.length}/6</small><b>${s.total}</b>
+      <span class="rd-pred">predicted ${s.pred}</span></div>`).join('')}
     <button class="rd-lock ${d.locked ? 'on' : ''}" onclick="rdLock()">${d.locked ? '🔒 LOCKED' : 'LOCK'}</button>
   </div>
   <div class="rd-note">${d.locked ? 'Sheets are turned in. Scores still fill in after the race. Tap LOCKED to change picks.'
     : d.loaded ? 'Picks match what each rider raced. A picked class they did not race scores 0. Best 4 count.'
-    : 'Pick before motos post. Tap a name to change that rider’s classes.'}</div>`;
+    : 'Pick before motos post. Tap a name to change that rider’s classes.'}</div>
+  ${d.locked ? '' : `<button class="rd-suggest" onclick="rdSuggest()">SUGGEST SHEETS FROM PREDICTIONS</button>`}`;
 
   if (S.rd.editing) {
     const rr = d.roster.find(r => r.id === S.rd.editing);
@@ -3246,16 +3360,19 @@ function rdAdminHtml() {
     </div>`;
   }
 
-  const byPts = (a, b) => ((b.s.pts ?? -1) - (a.s.pts ?? -1)) || a.name.localeCompare(b.name);
+  const val = r => r.s.pts ?? rdPredict(r.id, r.type).exp;
+  const byPts = (a, b) => (val(b) - val(a)) || a.name.localeCompare(b.name);
   const card = r => {
     const sh = rdSheetOf(r.key);
     const info = sh ? sheet[sh - 1] : null;
     const counts = !!(info && r.s.pts > 0 && r.s.pts >= info.cutoff);
     const code = d.loaded && d.entries[r.id]?.races[r.type] ? d.entries[r.id].races[r.type].code : '';
-    let pts = '–', math = 'Not raced yet', col = '#5a5a5a';
-    if (r.s.state === 'scored') { pts = r.s.pts; col = '#fff'; math = `${r.s.count} riders + ${RD_ORD[r.s.place]} (${r.s.fp})`; }
-    else if (r.s.state === 'dnq') { pts = '0'; math = 'DNQ · no points'; }
-    else if (r.s.state === 'none') { pts = '0'; math = 'Did not race this class'; }
+    const pr = rdPredict(r.id, r.type);
+    const predLine = pr.none ? '' : `Predicted ${pr.exp} · main ${Math.round(pr.pMain * 100)}% · avg ${RD_ORD[Math.round(pr.place)]}${pr.n ? '' : ' · no history'}`;
+    let pts = pr.none ? '–' : `<i>~${pr.exp}</i>`, math = predLine || 'Not raced yet', col = '#8f8f8f';
+    if (r.s.state === 'scored') { pts = r.s.pts; col = '#fff'; math = `${r.s.count} riders + ${RD_ORD[r.s.place]} (${r.s.fp}) · predicted ${pr.exp}`; }
+    else if (r.s.state === 'dnq') { pts = '0'; col = '#5a5a5a'; math = `DNQ · no points · predicted ${pr.exp}`; }
+    else if (r.s.state === 'none') { pts = '0'; col = '#5a5a5a'; math = 'Did not race this class'; }
     else if (r.s.state === 'nolevel') { pts = '?'; col = '#ff5500'; math = 'Class level unknown'; }
     const bd = sh ? (counts || !d.loaded ? (sh === 1 ? '#38f100' : '#ff5500') : (sh === 1 ? '#1f4d10' : '#5a2a10')) : '#161616';
     const btn = n => {
@@ -3267,7 +3384,8 @@ function rdAdminHtml() {
     return `<div class="rd-pick" style="border-color:${bd}">
       <span class="rd-who" onclick="rdEdit('${r.id}')"><b>${esc(r.name.split(' ')[0])}
         ${counts ? `<span class="rd-tag" style="color:${sh === 1 ? '#38f100' : '#ff5500'}">COUNTS</span>` : ''}</b>
-        <span>${RD_NICE[r.type]}${code ? ' · ' + esc(code) : ''} · ${esc(math)}</span></span>
+        <span>${RD_NICE[r.type]}${code ? ' · ' + esc(code) : ''} · ${esc(math)}</span>
+        ${pr.mv ? `<span class="rd-moveup">MOVED UP ${esc(pr.mv.from.toUpperCase())} → ${esc(pr.mv.to.toUpperCase())}${pr.mv.why.includes('level') ? ` · NEW LEVEL` : ''} · history counts less</span>` : ''}</span>
       <span class="rd-pts" style="color:${col}">${pts}</span>${btn(1)}${btn(2)}</div>`;
   };
   for (const n of [1, 2]) {
