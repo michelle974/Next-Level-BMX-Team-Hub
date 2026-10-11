@@ -3823,7 +3823,8 @@ Object.assign(SCREENS, {
       }
       const note = f.status === 'paid' ? `✓ Paid ${esc(jsDay(f.date))}`
         : f.status === 'invoice' ? `Invoiced ${esc(jsDay(f.date))} · ${money(f.total)} · showing in their app` : 'Not invoiced yet';
-      html += `<div class="famtot"><span>${f.lines.reduce((n, l) => n + (Number(l.qty) || 1), 0)} items</span><span>${money(f.total)}</span></div>
+      const cnt = f.lines.reduce((n, l) => n + (Number(l.qty) || 1), 0);
+      html += `<div class="famtot"><span>${cnt} item${cnt === 1 ? '' : 's'}</span><span>${money(f.total)}</span></div>
         <div class="jseg">${[['none', 'NEITHER'], ['invoice', 'INVOICE'], ['paid', 'PAID']].map(([k, l]) =>
           `<button class="${f.status === k ? 'on ' + k : ''}" onclick="orderStatus('${f.key}','${k}')">${l}</button>`).join('')}</div>
         <div class="jnote ${f.status}">${note}</div></div>`;
