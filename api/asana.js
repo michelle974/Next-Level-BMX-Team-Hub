@@ -272,6 +272,75 @@ const publicUser = (t, f) => ({
   isAdmin: (f.IS_ADMIN || '').toLowerCase() === 'true',
 });
 
+/* ---------- team orders (pants, helmets, anything ordered through sponsors) ---------- */
+// One Asana task per order in an "Orders" section (created on first use).
+// ITEMS_JSON: [{familyKey, familyName, who, item, size, qty, price}]
+// FAMILY_STATUS_JSON: {familyKey: {status: 'invoice'|'paid', amount, date}}
+const ORDERS_SECTION_NAME = 'Orders';
+const DEFAULT_PAY_URL = 'https://www.zeffy.com/en-US/donation-form/team-gear';
+let ordersSectionGid = process.env.SEC_ORDERS || null;
+async function ordersSection() {
+  if (ordersSectionGid) return ordersSectionGid;
+  const secs = await asana(`/projects/${PROJECT_GID}/sections?opt_fields=name`);
+  const hit = (secs || []).find(x => x.name.trim().toLowerCase() === ORDERS_SECTION_NAME.toLowerCase());
+  if (hit) return (ordersSectionGid = hit.gid);
+  const made = await asana(`/projects/${PROJECT_GID}/sections`, {
+    method: 'POST', body: JSON.stringify({ data: { name: ORDERS_SECTION_NAME } }),
+  });
+  return (ordersSectionGid = made.gid);
+}
+const jsonField = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
+const oneLine = v => JSON.stringify(v).replace(/\n/g, ' ');
+
+// Households: keyed by the first linked parent (same rule as jersey orders), or the rider alone.
+function households(riders, parents) {
+  const isBoth = t => (t.fields.ROLE || '').toUpperCase() === 'BOTH';
+  const pool = [...parents, ...riders.filter(isBoth)];
+  const fam = new Map();
+  for (const r of riders) {
+    const ps = pool.filter(p => p.gid !== r.gid &&
+      (splitIds(r.fields.LINKED_PARENTS).includes(p.gid) || splitIds(p.fields.LINKED_RIDERS).includes(r.gid)))
+      .sort((a, b) => a.gid.localeCompare(b.gid));
+    const head = ps[0];
+    const key = head ? head.gid : r.gid;
+    if (!fam.has(key)) fam.set(key, { key, name: head ? head.name : r.name, riders: [], taskGids: new Set() });
+    const h = fam.get(key);
+    h.riders.push(r.name);
+    h.taskGids.add(r.gid);
+    for (const p of ps) h.taskGids.add(p.gid);
+  }
+  for (const p of parents) {
+    if ([...fam.values()].some(h => h.taskGids.has(p.gid))) continue;
+    fam.set(p.gid, { key: p.gid, name: p.name, riders: [], taskGids: new Set([p.gid]) });
+  }
+  return [...fam.values()].map(h => ({ ...h, taskGids: [...h.taskGids] }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function orderView(t) {
+  const f = t.fields;
+  const items = jsonField(f.ITEMS_JSON, []);
+  const status = jsonField(f.FAMILY_STATUS_JSON, {});
+  const byFam = new Map();
+  for (const it of items) {
+    if (!byFam.has(it.familyKey)) byFam.set(it.familyKey, { key: it.familyKey, name: it.familyName || '', lines: [] });
+    byFam.get(it.familyKey).lines.push(it);
+  }
+  const families = [...byFam.values()].map(x => {
+    const total = x.lines.reduce((n, l) => n + (Number(l.qty) || 1) * (Number(l.price) || 0), 0);
+    const st = status[x.key] || {};
+    return { ...x, total, status: st.status || 'none', amount: Number(st.amount) || 0, date: st.date || '' };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    gid: t.gid, name: f.ORDER_NAME || t.name.replace(/^ORDER:\s*/, ''),
+    vendor: f.VENDOR || '', payUrl: f.PAY_URL || DEFAULT_PAY_URL,
+    created: f.CREATED || '', archived: (f.ARCHIVED || '').toLowerCase() === 'true',
+    items, families,
+    total: families.reduce((n, x) => n + x.total, 0),
+    paid: families.filter(x => x.status === 'paid').reduce((n, x) => n + x.total, 0),
+  };
+}
+
 /* ---------- zeffy ---------- */
 
 async function zeffy(path) {
@@ -981,6 +1050,106 @@ export default async function handler(req, res) {
           ? { JERSEY_PAID_AMOUNT: '', JERSEY_PAID_DATE: '' }
           : { JERSEY_PAID_AMOUNT: String(parseFloat(amount) || 0), JERSEY_PAID_DATE: new Date().toISOString().slice(0, 10) });
         return res.json({ ok: true });
+      }
+
+      /* ----- team orders ----- */
+      case 'adminOrders': {
+        const { gid, session } = body;
+        await requireAdmin(gid, session);
+        const tasks = await listSection(await ordersSection());
+        const settings = tasks.find(t => t.name === 'ORDERS: Settings');
+        return res.json({
+          jerseyArchived: (settings?.fields.JERSEY_ARCHIVED || '').toLowerCase() === 'true',
+          orders: tasks.filter(t => t.name.startsWith('ORDER:')).map(orderView)
+            .sort((a, b) => (b.created || '').localeCompare(a.created || '')),
+        });
+      }
+
+      case 'adminFamilies': {
+        const { gid, session } = body;
+        await requireAdmin(gid, session);
+        const [riders, parents] = await Promise.all([listSection(SECTIONS.riders), listSection(SECTIONS.parents)]);
+        return res.json({ families: households(riders, parents).map(h => ({ key: h.key, name: h.name, riders: h.riders })) });
+      }
+
+      case 'adminSaveOrder': {
+        const { gid, session, orderGid, name, vendor, payUrl, items } = body;
+        await requireAdmin(gid, session);
+        if (!name || !String(name).trim()) return res.status(400).json({ error: 'Give the order a name.' });
+        const clean = (Array.isArray(items) ? items : []).filter(i => i && i.familyKey && i.item).slice(0, 300).map(i => ({
+          familyKey: String(i.familyKey), familyName: String(i.familyName || ''),
+          who: String(i.who || '').slice(0, 60), item: String(i.item).slice(0, 80),
+          size: String(i.size || '').slice(0, 20),
+          qty: Math.min(99, Math.max(1, parseInt(i.qty, 10) || 1)),
+          price: Math.max(0, Math.round((parseFloat(i.price) || 0) * 100) / 100),
+        }));
+        const fields = {
+          ORDER_NAME: String(name).trim(), VENDOR: String(vendor || '').trim(),
+          PAY_URL: String(payUrl || '').trim() || DEFAULT_PAY_URL,
+          ITEMS_JSON: oneLine(clean),
+        };
+        if (orderGid) {
+          await patchTask(orderGid, fields);
+          await asana(`/tasks/${orderGid}`, { method: 'PUT', body: JSON.stringify({ data: { name: `ORDER: ${fields.ORDER_NAME}` } }) });
+          return res.json({ ok: true, gid: orderGid });
+        }
+        const newGid = await createInSection(await ordersSection(), `ORDER: ${fields.ORDER_NAME}`, {
+          ...fields, CREATED: new Date().toISOString().slice(0, 10), ARCHIVED: 'false', FAMILY_STATUS_JSON: '{}',
+        });
+        return res.json({ ok: true, gid: newGid });
+      }
+
+      case 'adminOrderStatus': {
+        const { gid, session, orderGid, familyKey, status } = body;
+        await requireAdmin(gid, session);
+        if (!['none', 'invoice', 'paid'].includes(status)) return res.status(400).json({ error: 'Bad status.' });
+        const t = await assertInProject(orderGid);
+        const v = orderView({ gid: orderGid, name: t.name, fields: parseNotes(t.notes || '') });
+        const fam = v.families.find(x => x.key === familyKey);
+        if (!fam) return res.status(404).json({ error: 'That family is not on this order.' });
+        const st = jsonField(parseNotes(t.notes || '').FAMILY_STATUS_JSON, {});
+        if (status === 'none') delete st[familyKey];
+        else st[familyKey] = { status, amount: fam.total, date: new Date().toISOString().slice(0, 10) };
+        await patchTask(orderGid, { FAMILY_STATUS_JSON: oneLine(st) });
+        return res.json({ ok: true });
+      }
+
+      case 'adminArchiveOrder': {
+        const { gid, session, orderGid, archived } = body;
+        await requireAdmin(gid, session);
+        if (orderGid === 'jersey') {
+          const sec = await ordersSection();
+          const tasks = await listSection(sec);
+          let st = tasks.find(t => t.name === 'ORDERS: Settings');
+          if (!st) {
+            await createInSection(sec, 'ORDERS: Settings', { JERSEY_ARCHIVED: archived ? 'true' : 'false' });
+          } else {
+            await patchTask(st.gid, { JERSEY_ARCHIVED: archived ? 'true' : 'false' });
+          }
+          return res.json({ ok: true });
+        }
+        await patchTask(orderGid, { ARCHIVED: archived ? 'true' : 'false' });
+        return res.json({ ok: true });
+      }
+
+      // Invoices for the logged-in person's family, across every team order.
+      case 'myInvoices': {
+        const { gid, session } = body;
+        if (!verifySession(gid, session)) return res.status(401).json({ error: 'Session invalid.' });
+        const [riders, parents, tasks] = await Promise.all([
+          listSection(SECTIONS.riders), listSection(SECTIONS.parents), listSection(await ordersSection()),
+        ]);
+        const mine = households(riders, parents).filter(h => h.taskGids.includes(gid)).map(h => h.key);
+        const invoices = [];
+        for (const t of tasks.filter(x => x.name.startsWith('ORDER:'))) {
+          const v = orderView(t);
+          for (const f of v.families) {
+            if (!mine.includes(f.key) || f.status !== 'invoice') continue;
+            invoices.push({ orderGid: v.gid, name: v.name, vendor: v.vendor, payUrl: v.payUrl,
+              amount: f.total, date: f.date, lines: f.lines });
+          }
+        }
+        return res.json({ invoices });
       }
 
       /* ----- payment ----- */
