@@ -471,6 +471,13 @@
   .rd-synced { font-size: 12px; font-weight: 700; color: #8f8f8f; white-space: nowrap; }
   .rd-err { border-radius: 10px; background: #2a0d0d; border: 2px solid #ff3b3b; color: #ffb3b3;
     padding: 10px 12px; font-size: 16px; font-weight: 600; }
+  .rd-test { display: flex; align-items: center; gap: 10px; border-radius: 10px; border: 2px dashed #ffcc00;
+    background: #2a2200; color: #ffe27a; padding: 8px 10px; font-size: 15px; font-weight: 600; }
+  .rd-test span { flex: 1; } .rd-test b { color: #ffcc00; letter-spacing: 1px; }
+  .rd-test button { height: 36px; padding: 0 12px; border-radius: 8px; border: 2px solid #ffcc00;
+    background: transparent; color: #ffcc00; font-size: 14px; font-weight: 800; letter-spacing: 1px; }
+  .rd-testbtn { height: 40px; border-radius: 8px; border: 2px dashed #5a5a5a; background: transparent;
+    color: #bdbdbd; font-size: 14px; font-weight: 800; letter-spacing: 1px; }
   .rd-note { font-size: 15px; font-weight: 700; color: #a8a8a8; }
   .rd-wait { margin-top: 30px; text-align: center; color: #bdbdbd; font-size: 20px; font-weight: 700; line-height: 1.3; }
   .rd-wait big { display: block; font-size: 30px; font-style: italic; font-weight: 800; color: #fff; margin-bottom: 6px; }
@@ -2736,6 +2743,7 @@ boot();
 // Log + Board for every parent, Admin (team sheets) for Michelle. Motos and
 // results come from the USA BMX live site via /api/raceday; parent logs are
 // the fast path and the live site confirms or flags them.
+const RD_FEED_URL = 'https://motoboards.usabmx.com/events/track_1968.json';
 const RD_TYPES = ['open', 'cruiser', 'class'];
 const RD_NICE = { open: 'Open', cruiser: 'Cruiser', class: 'Class' };
 const RD_DAYNAME = { SAT: 'Saturday', SUN: 'Sunday' };
@@ -2847,7 +2855,11 @@ async function rdApi(action, payload = {}) {
     body: JSON.stringify({ action, gid: S.user?.gid, session: S.session, day: S.rd.day, ...payload }),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || 'Something went wrong.');
+  if (!res.ok) {
+    const err = new Error(json.error || (res.status === 504 ? 'The server took too long. Try again.' : `Something went wrong (${res.status}).`));
+    err.feedBlocked = !!json.feedBlocked || res.status === 504;
+    throw err;
+  }
   return json;
 }
 
@@ -2882,6 +2894,10 @@ function rdRender() {
   v.scrollTop = top;
 }
 
+// Admin only: practice with whatever race the live site still shows (e.g. State Champs).
+function rdTestMode() { rdSetDay('TEST|SAT'); setTimeout(() => { if (!S.rd.data?.loaded) rdSync(); }, 1200); }
+function rdExitTest() { rdSetDay(''); }
+
 function rdSetDay(key) {
   S.rd.day = key; S.rd.data = null; S.rd.open = ''; S.rd.flipped = {}; S.rd.editing = null;
   rdRender(); rdLoad();
@@ -2895,7 +2911,14 @@ async function rdSync() {
   if (S.rd.busy) return;
   S.rd.busy = true; S.rd.err = ''; rdRender();
   try {
-    await rdApi('update');
+    try { await rdApi('update'); }
+    catch (e) {
+      // USA BMX may refuse the server; the phone can read the live site, so send it along.
+      if (!e.feedBlocked) throw e;
+      const fr = await fetch(RD_FEED_URL, { cache: 'no-store' });
+      if (!fr.ok) throw new Error(`The USA BMX live site did not answer (${fr.status}). Try again in a minute.`);
+      await rdApi('update', { feed: await fr.json() });
+    }
     await rdLoad();
   } catch (e) { S.rd.err = e.message; }
   S.rd.busy = false; rdRender();
@@ -3279,7 +3302,15 @@ SCREENS.raceday = () => {
         ${d.updated ? `<span class="rd-synced">Updated ${esc(rdTime(d.updated))}</span>` : ''}
       </div>` : ''}
     </div>`;
+  const testing = d?.day?.key === 'TEST|SAT';
+  if (testing) {
+    html += `<div class="rd-test"><span><b>TEST MODE</b> · last race posted on the live site${d.eventName ? ` (${esc(d.eventName)})` : ''}</span>
+      <button onclick="rdExitTest()">EXIT</button></div>`;
+  }
   if (S.rd.err) html += `<div class="rd-err">${esc(S.rd.err)}</div>`;
+  if (d?.me?.admin && !testing) {
+    html += `<button class="rd-testbtn" onclick="rdTestMode()">TEST MODE · PULL THE LAST POSTED RACE</button>`;
+  }
   if (!d) html += '<div class="spinner"></div>';
   else if (tab === 'admin') html += rdAdminHtml();
   else if (!d.loaded) {

@@ -433,9 +433,18 @@ export default async function handler(req, res) {
 
       case 'update': {
         if (!me.admin && !me.helper) throw deny('Only Michelle and Race Day helpers can load motos.');
-        const fr = await fetch(FEED_URL, { headers: { Accept: 'application/json' } });
-        if (!fr.ok) throw new Error(`The USA BMX live site did not answer (${fr.status}). Try again in a minute.`);
-        const feed = await fr.json();
+        // The phone sends the feed when the USA BMX site will not answer the server.
+        let feed = body.feed && typeof body.feed === 'object' ? body.feed : null;
+        if (!feed) {
+          let fr = null;
+          try { fr = await fetch(FEED_URL, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (NextLevelBMX TeamHub)' } }); }
+          catch { fr = null; }
+          if (!fr || !fr.ok) {
+            return res.status(502).json({ error: 'The USA BMX live site did not answer the server.', feedBlocked: true });
+          }
+          feed = await fr.json();
+        }
+        if (!feed.races) return res.status(409).json({ error: 'The USA BMX live site has no motos posted right now.' });
         if (!day.test && feed.publish_until) {
           const until = new Date(feed.publish_until);
           if (until < new Date(`${day.date}T00:00:00-05:00`)) {
