@@ -1913,7 +1913,9 @@ const SCREENS = {
     }
 
     html += `<div class="sechead">By Family</div>`;
-    for (const f of d.families) {
+    // Paid families drop to the bottom.
+    const jPaid = f => f.total > 0 && (f.paidAmount || 0) >= f.total ? 1 : 0;
+    for (const f of [...d.families].sort((a, b) => jPaid(a) - jPaid(b))) {
       if (!f.qty && !f.riders.length) continue;
       html += `<div class="famblock">
         <div class="fname">${esc(f.contact.name || 'Unassigned')}</div>
@@ -3815,7 +3817,8 @@ Object.assign(SCREENS, {
       <button class="btn alt slim" style="margin-top:0" onclick="editOrder()">Edit Order</button>
       <div class="sechead">By Family</div>`;
     if (!x.families.length) html += '<div class="empty">No lines yet. Tap Edit Order to add them.</div>';
-    for (const f of x.families) {
+    // Paid families drop to the bottom.
+    for (const f of [...x.families].sort((a, b) => (a.status === 'paid') - (b.status === 'paid'))) {
       html += `<div class="famblock"><div class="fname">${esc(f.name)}</div><div style="height:8px"></div>`;
       for (const l of f.lines) {
         const bits = [l.item, l.size, (l.qty || 1) > 1 ? `×${l.qty}` : ''].filter(Boolean).join(' · ');
