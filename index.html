@@ -3789,7 +3789,7 @@ const VENDOR_CATALOG = [
     adultUrl: 'https://www.flyracing.com/werx-r-flow-carbon-helmet/', youthUrl: 'https://www.flyracing.com/youth-werx-r-flow-carbon-helmet/' },
   { match: /werx|helmet/i, adult: 'Werx-R Carbon Bicycle Helmet', youth: 'Youth Werx-R Carbon Helmet',
     adultUrl: 'https://www.flyracing.com/werx-r-carbon-helmet-b0ls/', youthUrl: 'https://www.flyracing.com/youth-werx-r-carbon-helmet-a38p/' },
-  { match: /glove/i, adult: 'Pro Lite Gloves', youth: 'Youth Pro Lite Gloves',
+  { match: /pro\s*-?\s*lite/i, adult: 'Pro Lite Gloves', youth: 'Youth Pro Lite Gloves',
     adultUrl: 'https://www.flyracing.com/pro-lite-gloves/', youthUrl: 'https://www.flyracing.com/youth-pro-lite-gloves/' },
 ];
 // Names offered in the Edit Order item box, so new lines use the vendor's wording.
@@ -3804,7 +3804,7 @@ function vendorLine(l) {
   color = color ? color.charAt(0).toUpperCase() + color.slice(1).toLowerCase() : '';
   const size = String(l.size || '').trim();
   const c = VENDOR_CATALOG.find(x => x.match.test(base));
-  if (!c) return { product: base, color, size, url: '' };
+  if (!c) return { product: base.replace(/^FLY\s+/i, ''), color, size, url: '' };
   const youth = /youth/i.test(base) || (c.youthSize ? c.youthSize(size) : /^y/i.test(size));
   return { product: youth ? c.youth : c.adult, color, size, url: youth ? c.youthUrl : c.adultUrl };
 }
