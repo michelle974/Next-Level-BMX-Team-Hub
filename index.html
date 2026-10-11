@@ -3284,10 +3284,11 @@ function rdPredict(id, type) {
     lvl = /girl/.test(p) ? 'GX' : /nov/.test(p) ? 'N' : /int/.test(p) ? 'I' : 'X';
   }
   let w = 0, wMain = 0, wPts = 0, wPlace = 0, wCount = 0;
+  const dist = [];
   rows.forEach(([count, place], i) => {
     const k = Math.pow(0.85, rows.length - 1 - i);
     w += k; wCount += k * count;
-    if (place) { wMain += k; wPts += k * RD_PTS[lvl][place]; wPlace += k * place; }
+    if (place) { wMain += k; wPts += k * RD_PTS[lvl][place]; wPlace += k * place; dist.push([place, k]); }
   });
   // Few races = lean toward an even chance; a move-up halves what history is worth.
   const trust = mv ? 0.5 : 1;
@@ -3297,7 +3298,87 @@ function rdPredict(id, type) {
   const fp = !wMain ? RD_PTS[lvl][5] : mv ? RD_PTS[lvl][Math.round(place)] : wPts / wMain;
   const real = d.entries?.[id]?.races?.[type]?.count;
   const count = real || (w ? Math.round(wCount / w) : 10);
-  return { exp: Math.round(pMain * (count + fp)), pMain, place, n: rows.length, count, realCount: !!real, mv };
+  // Where they finish when they make the main (used to simulate a sheet's best 4).
+  const places = dist.length
+    ? dist.map(([pl, k]) => [Math.min(8, pl + (mv ? 1 : 0)), k])
+    : [[3, 1], [4, 1], [5, 1], [6, 1], [7, 1]];
+  return { exp: Math.round(pMain * (count + fp)), pMain, place, n: rows.length, count, realCount: !!real, mv, lvl, places };
+}
+
+/* Only the best 4 of a sheet's 6 count, so a sheet is worth more than its 4
+   highest predictions: when someone misses the main, the 5th or 6th rider
+   fills in. Simulate the race day many times and average the best-4 total.
+   Draws are seeded per rider and class so the numbers hold steady on screen. */
+const RD_SIMS = 2000;
+function rdSeed(str) {
+  let h = 2166136261;
+  for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+}
+function rdSamples(id, type) {
+  const key = `${S.rd.day}|${id}|${type}`;
+  S.rd.simCache = S.rd.simCache || {};
+  const p = rdPredict(id, type);
+  const sig = `${p.pMain.toFixed(4)}|${p.count}|${JSON.stringify(p.places)}|${p.lvl}`;
+  const hit = S.rd.simCache[key];
+  if (hit && hit.sig === sig) return hit.out;
+  const out = new Float32Array(RD_SIMS);
+  if (!p.none) {
+    const rnd = rdSeed(key);
+    const tot = p.places.reduce((a, [, k]) => a + k, 0);
+    for (let i = 0; i < RD_SIMS; i++) {
+      if (rnd() >= p.pMain) continue;
+      let x = rnd() * tot, pl = p.places[p.places.length - 1][0];
+      for (const [place, k] of p.places) { if ((x -= k) <= 0) { pl = place; break; } }
+      out[i] = p.count + RD_PTS[p.lvl][pl];
+    }
+  }
+  S.rd.simCache[key] = { sig, out };
+  return out;
+}
+// Expected best-4 total for a list of {id, type}.
+function rdSheetValue(list) {
+  if (!list.length) return 0;
+  const sm = list.map(x => rdSamples(x.id, x.type));
+  let sum = 0;
+  const v = new Array(sm.length);
+  for (let i = 0; i < RD_SIMS; i++) {
+    for (let j = 0; j < sm.length; j++) v[j] = sm[j][i];
+    v.sort((a, b) => b - a);
+    sum += (v[0] || 0) + (v[1] || 0) + (v[2] || 0) + (v[3] || 0);
+  }
+  return sum / RD_SIMS;
+}
+// Build the sheet with the highest expected best-4 total: add the rider that
+// helps most, then keep trying swaps until nothing improves it.
+function rdBestSheet(cands, taken) {
+  const pool = cands.filter(c => !taken.has(c.key));
+  const sheet = [];
+  const ok = (c, list) => !list.some(x => x.id === c.id);
+  while (sheet.length < 6) {
+    let best = null, bestV = rdSheetValue(sheet);
+    for (const c of pool) {
+      if (sheet.includes(c) || !ok(c, sheet)) continue;
+      const v = rdSheetValue([...sheet, c]);
+      if (v > bestV + 0.01) { bestV = v; best = c; }
+    }
+    if (!best) break;
+    sheet.push(best);
+  }
+  for (let pass = 0; pass < 3; pass++) {
+    let improved = false;
+    for (let i = 0; i < sheet.length; i++) {
+      const base = rdSheetValue(sheet);
+      for (const c of pool) {
+        if (sheet.includes(c)) continue;
+        const trial = sheet.slice(); trial[i] = c;
+        if (trial.filter(x => x.id === c.id).length > 1) continue;
+        if (rdSheetValue(trial) > base + 0.01) { sheet[i] = c; improved = true; break; }
+      }
+    }
+    if (!improved) break;
+  }
+  return sheet;
 }
 
 // Fill both sheets with the highest predicted picks, following the sheet rules.
@@ -3310,15 +3391,9 @@ async function rdSuggest() {
     .map(r => ({ ...r, p: rdPredict(r.id, r.type) }))
     .filter(r => r.p.exp > 0)
     .sort((a, b) => b.p.exp - a.p.exp);
-  const picks = { s1: [], s2: [] };
-  const used = new Set();
-  for (const list of [picks.s1, picks.s2]) {
-    for (const c of cands) {
-      if (list.length >= 6) break;
-      if (used.has(c.key) || list.some(x => x.id === c.id)) continue;
-      list.push({ id: c.id, type: c.type }); used.add(c.key);
-    }
-  }
+  const s1 = rdBestSheet(cands, new Set());
+  const s2 = rdBestSheet(cands, new Set(s1.map(c => c.key)));
+  const picks = { s1: s1.map(c => ({ id: c.id, type: c.type })), s2: s2.map(c => ({ id: c.id, type: c.type })) };
   const prev = d.picks;
   d.picks = picks; rdRender();
   try { await rdApi('picks', { picks }); }
@@ -3333,14 +3408,14 @@ function rdAdminHtml() {
     const on = rows.filter(r => rdSheetOf(r.key) === n);
     const vals = on.filter(r => r.s.pts !== undefined).map(r => r.s.pts).sort((a, b) => b - a);
     const top4 = vals.slice(0, 4);
-    const pred = on.map(r => rdPredict(r.id, r.type).exp).sort((a, b) => b - a).slice(0, 4).reduce((a, b) => a + b, 0);
+    const pred = Math.round(rdSheetValue(on.map(r => ({ id: r.id, type: r.type }))));
     return { n, on, total: top4.reduce((a, b) => a + b, 0), cutoff: top4.length === 4 ? top4[3] : 0, pred };
   });
   const dayName = RD_DAYNAME[d.day?.day] || 'Today';
   let html = `<div class="rd-sheets">
     ${sheet.map(s => `<div class="rd-stat ${s.n === 1 ? 'g' : ''}" style="${s.n === 2 ? 'border-color:#ff5500;background:#1f1208' : ''}">
       <small style="${s.n === 2 ? 'color:#ff5500' : ''}">SHEET ${s.n} · ${s.on.length}/6</small><b>${s.total}</b>
-      <span class="rd-pred">predicted ${s.pred}</span></div>`).join('')}
+      <span class="rd-pred">predicted best 4: ${s.pred}</span></div>`).join('')}
     <button class="rd-lock ${d.locked ? 'on' : ''}" onclick="rdLock()">${d.locked ? '🔒 LOCKED' : 'LOCK'}</button>
   </div>
   <div class="rd-note">${d.locked ? 'Sheets are turned in. Scores still fill in after the race. Tap LOCKED to change picks.'
