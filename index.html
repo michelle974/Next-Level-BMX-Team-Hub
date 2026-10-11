@@ -3801,7 +3801,7 @@ function vendorLine(l) {
   const cut = raw.lastIndexOf(' - ');
   let color = cut > -1 ? raw.slice(cut + 3).trim() : '';
   const base = cut > -1 ? raw.slice(0, cut).trim() : raw;
-  color = color ? color.charAt(0).toUpperCase() + color.slice(1).toLowerCase() : '';
+  color = color.toLowerCase().replace(/(^|[\s\/-])([a-z])/g, (m, p, ch) => p + ch.toUpperCase());
   const size = String(l.size || '').trim();
   const c = VENDOR_CATALOG.find(x => x.match.test(base));
   if (!c) return { product: base.replace(/^FLY\s+/i, ''), color, size, url: '' };
