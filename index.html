@@ -2895,12 +2895,12 @@ function rdRender() {
 }
 
 // Admin only: practice with whatever race the live site still shows (e.g. State Champs).
-function rdTestMode() { rdSetDay('TEST|SAT'); setTimeout(() => { if (!S.rd.data?.loaded) rdSync(); }, 1200); }
+async function rdTestMode() { await rdSetDay('TEST|SAT'); if (S.rd.data && !S.rd.data.loaded) rdSync(); }
 function rdExitTest() { rdSetDay(''); }
 
 function rdSetDay(key) {
   S.rd.day = key; S.rd.data = null; S.rd.open = ''; S.rd.flipped = {}; S.rd.editing = null;
-  rdRender(); rdLoad();
+  rdRender(); return rdLoad();
 }
 function rdTab(t) { S.rd.tab = t; S.rd.open = ''; S.rd.editing = null; rdRender(); document.getElementById('view').scrollTop = 0; }
 function rdPhase(i) { S.rd.phase = i; S.rd.open = ''; rdRender(); }
@@ -3308,7 +3308,7 @@ SCREENS.raceday = () => {
       <button onclick="rdExitTest()">EXIT</button></div>`;
   }
   if (S.rd.err) html += `<div class="rd-err">${esc(S.rd.err)}</div>`;
-  if (d?.me?.admin && !testing) {
+  if (d?.me?.admin && !testing && !d.loaded) {
     html += `<button class="rd-testbtn" onclick="rdTestMode()">TEST MODE · PULL THE LAST POSTED RACE</button>`;
   }
   if (!d) html += '<div class="spinner"></div>';
