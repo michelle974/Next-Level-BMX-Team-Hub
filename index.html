@@ -3779,22 +3779,113 @@ async function orderStatus(familyKey, status) {
   catch (e) { Object.assign(f, prev); alert(e.message); render(); }
 }
 
-function orderCsv() {
-  const x = currentOrder(); if (!x) return;
-  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const rows = [['Family', 'For', 'Item', 'Size', 'Qty', 'Price Each', 'Amount', 'Family Status']];
+/* ---- vendor catalog: maps loose item names to the vendor's product names ---- */
+// Order matters: Flow is checked before plain Werx-R.
+const VENDOR_CATALOG = [
+  { match: /pant/i, adult: 'Rayce Sonar Bicycle Pants', youth: 'Youth Rayce Sonar Bicycle Pants',
+    adultUrl: 'https://www.flyracing.com/rayce-sonar-bicycle-pants/', youthUrl: 'https://www.flyracing.com/youth-rayce-sonar-bicycle-pants/',
+    youthSize: s => /^y/i.test(s) || (/^\d+$/.test(s) && Number(s) <= 26) },
+  { match: /flow/i, adult: 'Werx-R Flow Carbon Bicycle Helmet', youth: 'Youth Werx-R Flow Carbon Helmet',
+    adultUrl: 'https://www.flyracing.com/werx-r-flow-carbon-helmet/', youthUrl: 'https://www.flyracing.com/youth-werx-r-flow-carbon-helmet/' },
+  { match: /werx|helmet/i, adult: 'Werx-R Carbon Bicycle Helmet', youth: 'Youth Werx-R Carbon Helmet',
+    adultUrl: 'https://www.flyracing.com/werx-r-carbon-helmet-b0ls/', youthUrl: 'https://www.flyracing.com/youth-werx-r-carbon-helmet-a38p/' },
+  { match: /glove/i, adult: 'Pro Lite Gloves', youth: 'Youth Pro Lite Gloves',
+    adultUrl: 'https://www.flyracing.com/pro-lite-gloves/', youthUrl: 'https://www.flyracing.com/youth-pro-lite-gloves/' },
+];
+// Names offered in the Edit Order item box, so new lines use the vendor's wording.
+const VENDOR_ITEM_SUGGESTIONS = VENDOR_CATALOG.flatMap(c => [c.adult, c.youth])
+  .flatMap(n => ['Black', 'White'].map(col => `${n} - ${col}`));
+
+function vendorLine(l) {
+  const raw = String(l.item || '').trim();
+  const cut = raw.lastIndexOf(' - ');
+  let color = cut > -1 ? raw.slice(cut + 3).trim() : '';
+  const base = cut > -1 ? raw.slice(0, cut).trim() : raw;
+  color = color ? color.charAt(0).toUpperCase() + color.slice(1).toLowerCase() : '';
+  const size = String(l.size || '').trim();
+  const c = VENDOR_CATALOG.find(x => x.match.test(base));
+  if (!c) return { product: base, color, size, url: '' };
+  const youth = /youth/i.test(base) || (c.youthSize ? c.youthSize(size) : /^y/i.test(size));
+  return { product: youth ? c.youth : c.adult, color, size, url: youth ? c.youthUrl : c.adultUrl };
+}
+
+// One row per product + color + size, quantities added up across families.
+function vendorGroups(x) {
+  const map = new Map();
+  for (const l of x.items) {
+    const v = vendorLine(l);
+    const key = [v.product, v.color, v.size].map(t => t.toLowerCase()).join('|');
+    const qty = Number(l.qty) || 1, price = Number(l.price) || 0;
+    const g = map.get(key) || { ...v, qty: 0, total: 0, prices: new Set(), who: [] };
+    g.qty += qty; g.total += qty * price; g.prices.add(price.toFixed(2));
+    if (l.who) g.who.push(qty > 1 ? `${l.who} ×${qty}` : l.who);
+    map.set(key, g);
+  }
+  const sizeRank = s => { const n = parseFloat(s); if (!isNaN(n)) return n;
+    const order = ['YXXS','YXS','YS','YM','YL','YXL','YXXL','XXS','XS','S','M','L','XL','XXL','2XL','3XL'];
+    const t = s.toUpperCase().replace(/^(MEN'?S|WOMEN'?S|YOUTH)\s*/, ''); const i = order.indexOf(t); return i < 0 ? 999 : 100 + i; };
+  return [...map.values()].sort((a, b) => a.product.localeCompare(b.product) || a.color.localeCompare(b.color) || sizeRank(a.size) - sizeRank(b.size))
+    .map(g => ({ ...g, priceEach: g.prices.size === 1 ? [...g.prices][0] : 'varies',
+      line: [g.product, g.color, g.size ? `Size ${g.size}` : '', `qty. ${g.qty}`, `total ${money(g.total)}`].filter(Boolean).join(' - ') }));
+}
+
+function orderSheets(x) {
+  const groups = vendorGroups(x);
+  const vendor = [['Order Line', 'Product', 'Color', 'Size', 'Qty', 'Price Each', 'Total', 'For', 'Link']];
+  for (const g of groups) vendor.push([g.line, g.product, g.color, g.size, g.qty, g.priceEach === 'varies' ? 'varies' : Number(g.priceEach), Number(g.total.toFixed(2)), g.who.join(', '), g.url]);
+  vendor.push([]);
+  vendor.push(['TOTAL', '', '', '', groups.reduce((n, g) => n + g.qty, 0), '', Number(x.total.toFixed(2)), '', '']);
+  const fam = [['Family', 'For', 'Item', 'Size', 'Qty', 'Price Each', 'Amount', 'Family Status']];
   for (const f of x.families) {
     const st = f.status === 'paid' ? `Paid ${f.date}` : f.status === 'invoice' ? `Invoiced ${f.date}` : 'Not invoiced';
-    for (const l of f.lines) rows.push([f.name, l.who, l.item, l.size, l.qty, Number(l.price).toFixed(2), ((l.qty || 1) * l.price).toFixed(2), st]);
+    for (const l of f.lines) fam.push([f.name, l.who, l.item, l.size, Number(l.qty) || 1, Number(Number(l.price).toFixed(2)), Number(((Number(l.qty) || 1) * l.price).toFixed(2)), st]);
   }
-  rows.push([]);
-  rows.push(['TOTAL', '', '', '', x.items.reduce((n, l) => n + (Number(l.qty) || 1), 0), '', x.total.toFixed(2), '']);
-  const blob = new Blob([rows.map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv' });
+  fam.push([]);
+  fam.push(['TOTAL', '', '', '', x.items.reduce((n, l) => n + (Number(l.qty) || 1), 0), '', Number(x.total.toFixed(2)), '']);
+  return { vendor, fam };
+}
+
+function loadXlsxLib() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((ok, bad) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    sc.onload = () => window.XLSX ? ok(window.XLSX) : bad(new Error('Spreadsheet library missing'));
+    sc.onerror = () => bad(new Error('Could not load the spreadsheet library'));
+    document.head.appendChild(sc);
+  });
+}
+
+function orderFileName(x, ext) { return `${x.name.replace(/[^\w\- ]+/g, '').trim() || 'order'}.${ext}`; }
+function saveBlob(blob, name) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${x.name.replace(/[^\w\- ]+/g, '').trim() || 'order'}.csv`;
+  a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
 }
+
+// Two tabs: "Vendor Order" (grouped, for whoever places the order) and "By Family" (for invoicing).
+async function orderXlsx() {
+  const x = currentOrder(); if (!x) return;
+  const { vendor, fam } = orderSheets(x);
+  try {
+    const X = await loadXlsxLib();
+    const wb = X.utils.book_new();
+    const ws1 = X.utils.aoa_to_sheet(vendor);
+    ws1['!cols'] = [{ wch: 70 }, { wch: 34 }, { wch: 9 }, { wch: 10 }, { wch: 5 }, { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 52 }];
+    ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
+    const ws2 = X.utils.aoa_to_sheet(fam);
+    ws2['!cols'] = [{ wch: 20 }, { wch: 14 }, { wch: 36 }, { wch: 10 }, { wch: 5 }, { wch: 10 }, { wch: 10 }, { wch: 22 }];
+    X.utils.book_append_sheet(wb, ws1, 'Vendor Order');
+    X.utils.book_append_sheet(wb, ws2, 'By Family');
+    X.writeFile(wb, orderFileName(x, 'xlsx'));
+  } catch (e) {
+    // Fallback: one CSV with both sections stacked.
+    const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = [['VENDOR ORDER'], ...vendor, [], ['BY FAMILY'], ...fam];
+    saveBlob(new Blob([rows.map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv' }), orderFileName(x, 'csv'));
+  }
+}
+function orderCsv() { return orderXlsx(); }
 
 /* ---- family side: invoices for team orders ---- */
 async function loadMyInvoicesQuietly() {
@@ -3832,7 +3923,14 @@ Object.assign(SCREENS, {
           `<button class="${f.status === k ? 'on ' + k : ''}" onclick="orderStatus('${f.key}','${k}')">${l}</button>`).join('')}</div>
         <div class="jnote ${f.status}">${note}</div></div>`;
     }
-    html += `<button class="btn" onclick="orderCsv()">Download CSV File</button>
+    const vg = vendorGroups(x);
+    if (vg.length) {
+      html += `<div class="sechead">Vendor Order</div><div class="famblock">`;
+      for (const g of vg) html += `<div class="famline"><span class="fl">${esc([g.product, g.color, g.size ? 'Size ' + g.size : ''].filter(Boolean).join(' - '))}</span><span class="fr">qty. ${g.qty} · ${money(g.total)}</span></div>`;
+      html += `<div class="famtot"><span>${vg.reduce((n, g) => n + g.qty, 0)} items</span><span>${money(x.total)}</span></div></div>`;
+    }
+    html += `<button class="btn" onclick="orderXlsx()">Download Order Spreadsheet</button>
+      <p class="sub" style="margin-top:6px">Two tabs: Vendor Order (grouped by product, color and size, for placing the order) and By Family.</p>
       <button class="btn alt slim" onclick="archiveOrder('${x.gid}',${!x.archived});goBack()">${x.archived ? 'Restore Order' : 'Archive Order'}</button>`;
     return html;
   },
@@ -3859,13 +3957,14 @@ Object.assign(SCREENS, {
         </select>
         <input list="oewho${i}" value="${esc(it.who)}" placeholder="For (rider or person)" oninput="oeItem(${i},'who',this.value)">
         <datalist id="oewho${i}">${(fam?.riders || []).map(n => `<option value="${esc(n)}">`).join('')}</datalist>
-        <input value="${esc(it.item)}" placeholder="Item (e.g. Pants)" oninput="oeItem(${i},'item',this.value)">
+        <input list="oeitems" value="${esc(it.item)}" placeholder="Item - Color (e.g. Rayce Sonar Bicycle Pants - Black)" oninput="oeItem(${i},'item',this.value)">
         <div class="oegrid">
           <input value="${esc(it.size)}" placeholder="Size" oninput="oeItem(${i},'size',this.value)">
           <input inputmode="numeric" value="${esc(it.qty)}" placeholder="Qty" oninput="oeItem(${i},'qty',this.value)">
           <input inputmode="decimal" value="${esc(it.price)}" placeholder="Price" oninput="oeItem(${i},'price',this.value)">
         </div></div>`;
     });
+    html += `<datalist id="oeitems">${VENDOR_ITEM_SUGGESTIONS.map(n => `<option value="${esc(n)}">`).join('')}</datalist>`;
     html += `<button class="btn alt slim" onclick="oeAdd()">+ Add a Line</button>
       <button class="btn" onclick="oeSave()">${e.gid ? 'Save Changes' : 'Create Order'}</button><div id="oeMsg"></div>`;
     return html;
