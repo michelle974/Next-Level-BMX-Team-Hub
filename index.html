@@ -587,9 +587,7 @@
   .rd-moveup { color: #ffcc00 !important; font-size: 12.5px !important; font-weight: 800 !important; letter-spacing: .5px; }
   .rd-suggest { height: 44px; border-radius: 10px; border: 2px solid #38f100; background: #0a0a0a; color: #38f100;
     font-size: 15px; font-weight: 800; letter-spacing: 1px; }
-  .rd-suggestrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .rd-suggest.clear { border-color: #5a5a5a; color: #bdbdbd; }
-  .rd-suggest:disabled { opacity: .35; }
   .rd-tag { font-size: 11px; font-weight: 800; letter-spacing: 1px; }
   .rd-edit { border-radius: 10px; border: 2px solid #ff5500; background: #1f1208; padding: 10px 12px;
     display: flex; flex-direction: column; gap: 8px; }
@@ -3436,10 +3434,9 @@ function rdAdminHtml() {
   <div class="rd-note">${d.locked ? 'Sheets are turned in. Scores still fill in after the race. Tap LOCKED to change picks.'
     : d.loaded ? 'Picks match what each rider raced. A picked class they did not race scores 0. Best 4 count.'
     : 'Pick before motos post. Tap a name to change that rider’s classes.'}</div>
-  ${d.locked ? '' : `<div class="rd-suggestrow">
-    <button class="rd-suggest" onclick="rdSuggest()">SUGGEST SHEETS</button>
-    <button class="rd-suggest clear" onclick="rdClearSuggest()" ${d.picks.s1.length || d.picks.s2.length ? '' : 'disabled'}>REMOVE SUGGESTIONS</button>
-  </div>`}`;
+  ${d.locked ? '' : S.rd.beforeSuggest?.day === S.rd.day
+    ? `<button class="rd-suggest clear" onclick="rdClearSuggest()">REMOVE SUGGESTIONS</button>`
+    : `<button class="rd-suggest" onclick="rdSuggest()">SUGGEST SHEETS FROM PREDICTIONS</button>`}`;
 
   if (S.rd.editing) {
     const rr = d.roster.find(r => r.id === S.rd.editing);
