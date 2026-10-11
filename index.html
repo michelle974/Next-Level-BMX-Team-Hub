@@ -3813,6 +3813,7 @@ function vendorLine(l) {
 function vendorGroups(x) {
   const map = new Map();
   for (const l of x.items) {
+    if ((Number(l.price) || 0) < 0) continue; // payment credits are not products
     const v = vendorLine(l);
     const key = [v.product, v.color, v.size].map(t => t.toLowerCase()).join('|');
     const qty = Number(l.qty) || 1, price = Number(l.price) || 0;
@@ -3834,7 +3835,7 @@ function orderSheets(x) {
   const vendor = [['Order Line', 'Product', 'Color', 'Size', 'Qty', 'Price Each', 'Total', 'For', 'Link']];
   for (const g of groups) vendor.push([g.line, g.product, g.color, g.size, g.qty, g.priceEach === 'varies' ? 'varies' : Number(g.priceEach), Number(g.total.toFixed(2)), g.who.join(', '), g.url]);
   vendor.push([]);
-  vendor.push(['TOTAL', '', '', '', groups.reduce((n, g) => n + g.qty, 0), '', Number(x.total.toFixed(2)), '', '']);
+  vendor.push(['TOTAL', '', '', '', groups.reduce((n, g) => n + g.qty, 0), '', Number(groups.reduce((n, g) => n + g.total, 0).toFixed(2)), '', '']);
   const fam = [['Family', 'For', 'Item', 'Size', 'Qty', 'Price Each', 'Amount', 'Family Status']];
   for (const f of x.families) {
     const st = f.status === 'paid' ? `Paid ${f.date}` : f.status === 'invoice' ? `Invoiced ${f.date}` : 'Not invoiced';
@@ -3927,7 +3928,7 @@ Object.assign(SCREENS, {
     if (vg.length) {
       html += `<div class="sechead">Vendor Order</div><div class="famblock">`;
       for (const g of vg) html += `<div class="famline"><span class="fl">${esc([g.product, g.color, g.size ? 'Size ' + g.size : ''].filter(Boolean).join(' - '))}</span><span class="fr">qty. ${g.qty} · ${money(g.total)}</span></div>`;
-      html += `<div class="famtot"><span>${vg.reduce((n, g) => n + g.qty, 0)} items</span><span>${money(x.total)}</span></div></div>`;
+      html += `<div class="famtot"><span>${vg.reduce((n, g) => n + g.qty, 0)} items</span><span>${money(vg.reduce((n, g) => n + g.total, 0))}</span></div></div>`;
     }
     html += `<button class="btn" onclick="orderXlsx()">Download Order Spreadsheet</button>
       <p class="sub" style="margin-top:6px">Two tabs: Vendor Order (grouped by product, color and size, for placing the order) and By Family.</p>
