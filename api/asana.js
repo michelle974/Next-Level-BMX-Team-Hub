@@ -906,11 +906,15 @@ export default async function handler(req, res) {
           }
           const riderQty = h.riders.filter(r => r.done).reduce((n, r) => n + r.qty, 0);
           const extraQty = h.extras.reduce((n, e) => n + e.qty, 0);
+          // Paid is recorded on the family's key task (first linked parent, or the rider).
+          const kf = byGid.get(h.key)?.fields || {};
           families.push({
             key: h.key, contact: h.contact,
             riders: h.riders, extras: h.extras,
             qty: riderQty + extraQty,
             total: (riderQty + extraQty) * price,
+            paidAmount: parseFloat(kf.JERSEY_PAID_AMOUNT || '0') || 0,
+            paidDate: kf.JERSEY_PAID_DATE || '',
           });
         }
         families.sort((a, b) => (a.contact.name || '').localeCompare(b.contact.name || ''));
@@ -932,7 +936,19 @@ export default async function handler(req, res) {
           missing,
           grandQty: families.reduce((n, f) => n + f.qty, 0),
           grandTotal: families.reduce((n, f) => n + f.total, 0),
+          grandPaid: families.reduce((n, f) => n + Math.min(f.paidAmount, f.total), 0),
         });
+      }
+
+      // Mark a family's jersey order paid (records the amount, so later extras show as still owed).
+      case 'adminJerseyPaid': {
+        const { gid, session, familyKey, amount, unpay } = body;
+        await requireAdmin(gid, session);
+        if (!familyKey) return res.status(400).json({ error: 'Missing family.' });
+        await patchTask(familyKey, unpay
+          ? { JERSEY_PAID_AMOUNT: '', JERSEY_PAID_DATE: '' }
+          : { JERSEY_PAID_AMOUNT: String(parseFloat(amount) || 0), JERSEY_PAID_DATE: new Date().toISOString().slice(0, 10) });
+        return res.json({ ok: true });
       }
 
       /* ----- payment ----- */
