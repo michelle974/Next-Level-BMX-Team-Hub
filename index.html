@@ -11,6 +11,8 @@
 <title>Next Level BMX — Team Hub</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&display=swap" rel="stylesheet">
 <style>
   :root {
     --green: #38f100;
@@ -449,6 +451,137 @@
   #sg-wrap .sg-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
   #sg-wrap .sg-footer { text-align: center; padding: 18px 0 4px; color: var(--muted); font-size: 12.5px; }
   #sg-wrap .sg-footer strong { color: #2bb800; }
+
+  /* ---------- race day (dark, phone first) ---------- */
+  main.rd-view { background: #0a0a0a; padding: 0; }
+  .rd { min-height: 100%; display: flex; flex-direction: column; color: #fff;
+    font-family: 'Barlow Condensed', -apple-system, BlinkMacSystemFont, sans-serif; }
+  .rd button { font-family: inherit; cursor: pointer; }
+  .rd-body { flex: 1; padding: 14px 14px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .rd-head { display: flex; align-items: center; gap: 10px; }
+  .rd-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.05; }
+  .rd-title b { font-size: 22px; font-weight: 800; font-style: italic; letter-spacing: 1px; }
+  .rd-daypick { position: relative; font-size: 15px; font-weight: 600; color: #8f8f8f; }
+  .rd-daypick select { position: absolute; inset: 0; opacity: 0; width: 100%; font-size: 16px; }
+  .rd-sync { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+  .rd-syncbtn { height: 44px; padding: 0 12px; border-radius: 10px; border: 2px solid #38f100;
+    background: #0a0a0a; color: #38f100; display: flex; align-items: center; gap: 6px;
+    font-size: 15px; font-weight: 800; letter-spacing: 1px; white-space: nowrap; }
+  .rd-syncbtn:disabled { opacity: .5; }
+  .rd-synced { font-size: 12px; font-weight: 700; color: #8f8f8f; white-space: nowrap; }
+  .rd-err { border-radius: 10px; background: #2a0d0d; border: 2px solid #ff3b3b; color: #ffb3b3;
+    padding: 10px 12px; font-size: 16px; font-weight: 600; }
+  .rd-note { font-size: 15px; font-weight: 700; color: #a8a8a8; }
+  .rd-wait { margin-top: 30px; text-align: center; color: #bdbdbd; font-size: 20px; font-weight: 700; line-height: 1.3; }
+  .rd-wait big { display: block; font-size: 30px; font-style: italic; font-weight: 800; color: #fff; margin-bottom: 6px; }
+  .rd-phases { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px;
+    background: #161616; padding: 4px; border-radius: 10px; }
+  .rd-phases button { height: 44px; border: 0; border-radius: 8px; font-size: 17px; font-weight: 800;
+    letter-spacing: .5px; white-space: nowrap; background: transparent; color: #bdbdbd; }
+  .rd-phases button.on { background: #38f100; color: #0a0a0a; }
+  .rd-list { display: flex; flex-direction: column; gap: 6px; }
+  .rd-item { border-radius: 10px; background: #161616; border: 2px solid #161616; }
+  .rd-item.open { border-color: #ff5500; }
+  .rd-item.logged { border-color: #1f4d10; }
+  .rd-item.nl { border-color: #5a2a10; }
+  .rd-item.flag { border-color: #ff3b3b; }
+  .rd-row { width: 100%; min-height: 54px; display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+    background: transparent; border: 0; color: #fff; text-align: left; }
+  .rd-num { width: 74px; flex-shrink: 0; font-size: 23px; font-weight: 800; font-style: italic; line-height: 1; }
+  .rd-num.sm { font-size: 17px; }
+  .rd-who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.05; }
+  .rd-who b { font-size: 20px; font-weight: 800; }
+  .rd-who span { font-size: 14px; font-weight: 600; color: #a8a8a8; letter-spacing: .5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rd-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+  .rd-chip { font-size: 14px; font-weight: 800; letter-spacing: 1px; padding: 1px 6px; border-radius: 4px;
+    border: 2px solid #d0d0d0; background: #2a2a2a; color: #d0d0d0; white-space: nowrap; }
+  .rd-chip.go { background: #38f100; border-color: #0a0a0a; color: #0a0a0a; }
+  .rd-chip.out { background: #2e2e2e; border-color: #9a9a9a; color: #9a9a9a; }
+  .rd-chip.or { background: #ff5500; border-color: #0a0a0a; color: #0a0a0a; }
+  .rd-chip.nl { background: #0a0a0a; border-color: #ff5500; color: #ff5500; }
+  .rd-chip.chk { background: #ff3b3b; border-color: #0a0a0a; color: #0a0a0a; }
+  .rd-count { font-size: 15px; font-weight: 800; }
+  .rd-count i { font-style: normal; font-weight: 600; color: #a8a8a8; }
+  .rd-panel { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .rd-lab { font-size: 14px; font-weight: 800; letter-spacing: 2px; color: #ff5500; }
+  .rd-places { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  .rd-places button { height: 44px; border-radius: 8px; font-size: 20px; font-weight: 800;
+    border: 2px solid #333; background: #0a0a0a; color: #fff; }
+  .rd-places button.on { background: #ff5500; border-color: #ff5500; color: #0a0a0a; }
+  .rd-outs { display: flex; gap: 6px; }
+  .rd-outs button { flex: 1 1 0; min-width: 0; height: 52px; border-radius: 8px; font-size: 17px; font-weight: 800;
+    letter-spacing: 1px; border: 2px solid #333; background: #0a0a0a; color: #fff; }
+  .rd-outs button.on { background: #38f100; border-color: #38f100; color: #0a0a0a; }
+  .rd-outs button.on.x { background: #3a3a3a; border-color: #5a5a5a; color: #fff; }
+  .rd-tp { font-size: 16px; font-weight: 700; color: #ffb08a; }
+  .rd-flag { border-radius: 8px; border: 2px solid #ff3b3b; background: #2a0d0d; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 6px; }
+  .rd-flag b { font-size: 15px; letter-spacing: 1px; color: #ff6b6b; }
+  .rd-flag div { font-size: 16px; font-weight: 700; }
+  .rd-flag .rd-outs button:first-child { background: #ff3b3b; border-color: #ff3b3b; color: #0a0a0a; }
+  .rd-by { font-size: 13px; font-weight: 600; color: #6b6b6b; }
+  .rd-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .rd-stat { border-radius: 8px; padding: 6px 10px; background: #161616; border: 2px solid #2a2a2a; }
+  .rd-stat.g { background: #102b08; border-color: #38f100; }
+  .rd-stat small { display: block; font-size: 13px; font-weight: 800; letter-spacing: 2px; color: #d9d9d9; }
+  .rd-stat.g small { color: #38f100; }
+  .rd-stat b { font-size: 30px; font-weight: 800; font-style: italic; line-height: 1; }
+  .rd-stat b i { font-size: 16px; color: #8f8f8f; font-style: normal; }
+  .rd-cols { display: grid; grid-template-columns: 62px repeat(3, minmax(0, 1fr)); gap: 4px; padding: 0 10px;
+    font-size: 13px; font-weight: 800; letter-spacing: 2px; color: #ff5500; text-align: center; }
+  .rd-card { width: 100%; border-radius: 10px; background: #161616; border: 2px solid #161616; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 4px; color: #fff; text-align: left; }
+  .rd-card.flag { border-color: #ff3b3b; }
+  .rd-card-top { display: flex; align-items: baseline; gap: 8px; }
+  .rd-card-top b { font-size: 21px; font-weight: 800; font-style: italic; letter-spacing: 1px; flex: 1; }
+  .rd-card-top span { font-size: 12px; font-weight: 800; letter-spacing: 1px; color: #8f8f8f; }
+  .rd-brow { display: grid; grid-template-columns: 62px repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .rd-brow > span { display: flex; align-items: center; font-size: 13px; font-weight: 800; letter-spacing: 1px; color: #bdbdbd; }
+  .rd-cell { min-width: 0; padding: 3px 6px; border-radius: 6px; border: 2px solid #2a2a2a; background: #1b1b1b;
+    display: flex; flex-direction: column; line-height: 1.1; }
+  .rd-cell small { font-size: 11px; font-weight: 800; letter-spacing: 1px; color: #9a9a9a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rd-cell b { font-size: 19px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rd-cell.empty { background: #111; border-color: #1c1c1c; color: #3a3a3a; }
+  .rd-cell.go { background: #102b08; border-color: #38f100; } .rd-cell.go small { color: #9fe88a; }
+  .rd-cell.out { background: #141414; border-color: #1c1c1c; color: #6b6b6b; } .rd-cell.out small { color: #555; }
+  .rd-cell.pod { background: #38f100; border-color: #38f100; color: #0a0a0a; } .rd-cell.pod small { color: #0a0a0a; }
+  .rd-cell.or { background: #1f1208; border-color: #ff5500; } .rd-cell.or small { color: #ffb08a; }
+  .rd-cell.chk { border-color: #ff3b3b; } .rd-cell.chk small { color: #ff6b6b; }
+  .rd-det { border-left: 3px solid #ff5500; padding-left: 8px; display: flex; flex-direction: column; gap: 1px; }
+  .rd-det b { font-size: 15px; font-weight: 800; letter-spacing: 1px; color: #ff5500; }
+  .rd-det span { font-size: 15px; font-weight: 600; color: #e0e0e0; }
+  .rd-tabs { position: sticky; bottom: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+    border-top: 1px solid #262626; background: #0a0a0a; }
+  .rd-tabs button { height: 56px; border: 0; background: transparent; font-size: 17px; font-weight: 800;
+    letter-spacing: 2px; color: #8f8f8f; border-top: 3px solid transparent; }
+  .rd-tabs button.on { color: #38f100; border-top-color: #38f100; }
+  /* admin */
+  .rd-sheets { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: stretch; }
+  .rd-lock { border-radius: 8px; border: 2px solid #333; background: #0a0a0a; color: #bdbdbd;
+    font-size: 14px; font-weight: 800; letter-spacing: 1px; padding: 0 10px; }
+  .rd-lock.on { border-color: #ff5500; color: #ff5500; }
+  .rd-grp { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+  .rd-grp b { font-size: 16px; font-weight: 800; letter-spacing: 2px; }
+  .rd-grp span { font-size: 13px; font-weight: 700; color: #8f8f8f; }
+  .rd-pick { display: flex; align-items: center; gap: 8px; border-radius: 10px; background: #161616;
+    border: 2px solid #161616; padding: 6px 8px 6px 12px; }
+  .rd-pick .rd-who { cursor: pointer; }
+  .rd-pts { width: 44px; text-align: right; font-size: 24px; font-weight: 800; font-style: italic; }
+  .rd-sbtn { width: 44px; height: 44px; border-radius: 8px; border: 2px solid #333; background: #0a0a0a;
+    color: #bdbdbd; font-size: 16px; font-weight: 800; }
+  .rd-sbtn:disabled { color: #3a3a3a; border-color: #1c1c1c; }
+  .rd-sbtn.s1 { background: #38f100; border-color: #38f100; color: #0a0a0a; }
+  .rd-sbtn.s2 { background: #ff5500; border-color: #ff5500; color: #0a0a0a; }
+  .rd-tag { font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+  .rd-edit { border-radius: 10px; border: 2px solid #ff5500; background: #1f1208; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 8px; }
+  .rd-edit .rd-outs button.on { background: #ff5500; border-color: #ff5500; color: #0a0a0a; }
+  .rd-help { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid var(--line); }
+  .rd-help .tl { font-size: 15px; font-weight: 700; }
+  .rd-help .tn { font-size: 13px; color: var(--muted); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -677,6 +810,7 @@ const ICON_FILE = {
 };
 function tileIcon(t) {
   if (t.icon && /^https?:/.test(t.icon)) return `<img src="${esc(t.icon)}" alt="">`;
+  if (t.label === 'Race Day') return `<svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4h14v10H5"/><path d="M5 9h14M9.7 4v10M14.3 4v10"/></svg>`;
   const f = ICON_FILE[t.label];
   if (f) return `<img src="/icons/${f}.png" alt="">`;
   return `<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
@@ -752,6 +886,7 @@ function render() {
   const v = document.getElementById('view');
   const header = document.getElementById('appHeader');
   const isHome = S.screen === 'home';
+  v.classList.toggle('rd-view', S.screen === 'raceday');
 
   if (isHome) {
     // Home: hide standard header, show topbar + hero inside view
@@ -1343,6 +1478,7 @@ const SCREENS = {
         ${S.isAdmin && p.pin ? `<div class="cmeta">PIN: <b>${esc(p.pin)}</b></div>` : ''}
         ${S.isAdmin ? `<button class="btn tiny alt" style="margin-top:12px"
            onclick="unlinkParent('${p.gid}','${r.gid}')">Unlink</button>` : ''}
+        ${raceHelperRow(p.gid)}
       </div>`;
     }
     if (S.isAdmin) {
@@ -1351,6 +1487,7 @@ const SCREENS = {
 
     if (S.isAdmin) {
       html += `<div class="sechead warn">Coaches only</div>`;
+      if (r.role === 'BOTH') html += raceHelperRow(r.gid);
       html += row('USA BMX #', esc(r.usabmx));
       html += row('Emergency Contact', esc(r.emergencyContact));
       html += row('Emergency Phone', phoneLink(r.emergencyPhone));
@@ -1975,6 +2112,7 @@ async function tapTile(gid) {
   const t = S.tiles.find(x => x.gid === gid);
   if (!t) return;
   if (t.label === 'Roster') return openRoster();
+  if (t.label === 'Race Day') return openRaceDay();
   if (t.label === 'Sign-Ups') return openSignups();
   if (t.label === 'Gear Ordering') return go('gear');
   if (t.label === 'Team Forms') return openForms();
@@ -2092,6 +2230,7 @@ async function openRoster() {
     S.riders = r.riders; S.unlinked = r.unlinked || [];
     S.parentPool = r.parentPool || [];
     S.riderIndex = r.riderIndex || []; S.isAdmin = r.isAdmin;
+    if (S.isAdmin) loadRaceHelpers();
   } catch (e) { alert(e.message); }
   render();
 }
@@ -2592,6 +2731,588 @@ async function makeBoard() {
 }
 
 boot();
+
+/* ============ race day ============ */
+// Log + Board for every parent, Admin (team sheets) for Michelle. Motos and
+// results come from the USA BMX live site via /api/raceday; parent logs are
+// the fast path and the live site confirms or flags them.
+const RD_TYPES = ['open', 'cruiser', 'class'];
+const RD_NICE = { open: 'Open', cruiser: 'Cruiser', class: 'Class' };
+const RD_DAYNAME = { SAT: 'Saturday', SUN: 'Sunday' };
+const RD_ORD = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
+const RD_PTS = {
+  N: [0, 24, 21, 18, 15, 12, 9, 6, 3],
+  I: [0, 32, 28, 24, 20, 16, 12, 8, 4],
+  X: [0, 40, 35, 30, 25, 20, 15, 10, 5],
+  GX: [0, 45, 40, 35, 30, 25, 20, 15, 10],
+};
+const rdKind = k => /M$/.test(k) ? 'main' : /S$/.test(k) ? 'semi' : /Q$/.test(k) ? 'qtr' : 'moto';
+const rdBase = k => k.replace(/[QSM]$/, '');
+const rdIsT = o => o === 'T' || o === 'T1' || o === 'T2';
+const rdHas = v => !!(v && (v.out || v.p1 || v.p2 || v.p3));
+// "2 - 2 To Semi" -> "2-2 Semi", "Total Points To Main" -> "TP Main"
+const rdRule = s => String(s || '').replace(/Total Points/i, 'TP').replace(/\s*-\s*/g, '-').replace(/\bTo\s+/i, '').trim();
+const rdTitleCase = s => String(s || '').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+
+S.rd = { data: null, tab: 'log', phase: 0, open: '', flipped: {}, day: '', busy: false,
+         err: '', editing: null, scope: 'season', timer: null };
+
+function rdClean(v = {}) {
+  const out = {};
+  if (['T', 'T1', 'T2', 'OUT'].includes(v.out)) out.out = v.out;
+  for (const p of ['p1', 'p2', 'p3']) { const n = parseInt(v[p], 10); if (n >= 1 && n <= 8) out[p] = n; }
+  return out;
+}
+
+function rdSame(a, b) {
+  for (const f of ['out', 'p1', 'p2', 'p3']) {
+    if (!a[f] || !b[f]) continue;
+    if (f === 'out' && rdIsT(a.out) && rdIsT(b.out) && (a.out === 'T' || b.out === 'T')) continue;
+    if (a[f] !== b[f]) return false;
+  }
+  return true;
+}
+
+// The result shown for one race: a parent's log wins, the live site fills gaps,
+// and a disagreement nobody has settled yet comes back as a flag.
+function rdEff(key) {
+  const d = S.rd.data || {};
+  const L = (d.logs || {})[key];
+  const F = (d.feed || {})[key];
+  if (L && rdHas(L.v)) {
+    const flag = rdHas(F) && !rdSame(L.v, F) && (d.acks || {})[key] !== JSON.stringify(rdClean(F)) ? F : null;
+    return { r: L.v, flag, by: L.by };
+  }
+  return { r: F || {}, flag: null, by: rdHas(F) ? 'live site' : '' };
+}
+
+function rdCells(e) {
+  const c = {};
+  for (const t of RD_TYPES) {
+    const r = e.races[t];
+    if (!r) continue;
+    c[t] = r;
+    for (const k of ['Q', 'S', 'M']) if (r[k]) c[t + k] = { ...r[k], rule: '' };
+  }
+  return c;
+}
+
+// The race right before this one.
+function rdFeeder(cells, k) {
+  const kind = rdKind(k), b = rdBase(k);
+  if (kind === 'moto') return null;
+  if (kind === 'qtr') return b;
+  if (kind === 'semi') return cells[b + 'Q'] ? b + 'Q' : b;
+  if (cells[b + 'S']) return b + 'S';
+  if (cells[b + 'Q']) return b + 'Q';
+  return b;
+}
+// Shows only once the rider transferred out of every race that feeds it.
+function rdQualified(id, cells, k) {
+  const f = rdFeeder(cells, k);
+  if (!f || !cells[f]) return true;
+  return rdIsT(rdEff(`${id}|${f}`).r.out) && rdQualified(id, cells, f);
+}
+
+function rdDescribe(kind, r) {
+  if (!rdHas(r)) return 'not raced';
+  if (kind === 'main') return r.p1 ? RD_ORD[r.p1] : 'not raced';
+  if (r.out === 'T1') return 'Rd 1 Transfer';
+  if (r.out === 'T2') return 'Rd 2 Transfer';
+  if (r.out === 'T') return 'Transferred';
+  if (r.out === 'OUT') return 'Out';
+  const pts = (r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0);
+  return pts ? `${pts} pts so far` : 'not raced';
+}
+
+function rdDayLabel(day) {
+  if (!day) return '';
+  return `${rdTitleCase(day.race)} · ${RD_DAYNAME[day.day] || ''}`;
+}
+
+function rdShortDate(ymd) {
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  if (!y) return '';
+  return new Date(y, m - 1, d).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function rdTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+async function rdApi(action, payload = {}) {
+  const res = await fetch('/api/raceday', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, gid: S.user?.gid, session: S.session, day: S.rd.day, ...payload }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'Something went wrong.');
+  return json;
+}
+
+async function openRaceDay() {
+  S.rd.err = '';
+  go('raceday');
+  await rdLoad();
+  clearInterval(S.rd.timer);
+  // Parents see results land all day without tapping anything.
+  S.rd.timer = setInterval(() => {
+    if (S.screen !== 'raceday') { clearInterval(S.rd.timer); return; }
+    if (document.visibilityState === 'visible' && !S.rd.busy) rdLoad(true);
+  }, 30000);
+}
+
+async function rdLoad(quiet) {
+  try {
+    const d = await rdApi('state');
+    S.rd.data = d;
+    S.rd.day = d.day?.key || S.rd.day;
+    if (!quiet) S.rd.err = '';
+  } catch (e) { if (!quiet) S.rd.err = e.message; }
+  rdRender();
+}
+
+// Re-render in place so polling and taps never jump the scroll position.
+function rdRender() {
+  if (S.screen !== 'raceday') return;
+  const v = document.getElementById('view');
+  const top = v.scrollTop;
+  v.innerHTML = SCREENS.raceday();
+  v.scrollTop = top;
+}
+
+function rdSetDay(key) {
+  S.rd.day = key; S.rd.data = null; S.rd.open = ''; S.rd.flipped = {}; S.rd.editing = null;
+  rdRender(); rdLoad();
+}
+function rdTab(t) { S.rd.tab = t; S.rd.open = ''; S.rd.editing = null; rdRender(); document.getElementById('view').scrollTop = 0; }
+function rdPhase(i) { S.rd.phase = i; S.rd.open = ''; rdRender(); }
+function rdToggle(key) { S.rd.open = S.rd.open === key ? '' : key; rdRender(); }
+function rdFlip(id) { S.rd.flipped[id] = !S.rd.flipped[id]; rdRender(); }
+
+async function rdSync() {
+  if (S.rd.busy) return;
+  S.rd.busy = true; S.rd.err = ''; rdRender();
+  try {
+    await rdApi('update');
+    await rdLoad();
+  } catch (e) { S.rd.err = e.message; }
+  S.rd.busy = false; rdRender();
+}
+
+// Log a result. Saved as its own entry so two parents never overwrite each other.
+async function rdSet(key, field, val) {
+  const cur = { ...rdEff(key).r };
+  cur[field] = cur[field] === val ? (field === 'out' ? '' : 0) : val;
+  const v = rdClean(cur);
+  const d = S.rd.data;
+  d.logs = d.logs || {};
+  const prev = d.logs[key];
+  d.logs[key] = { v, by: (S.user?.name || '').split(' ')[0], at: new Date().toISOString() };
+  rdRender();
+  try { await rdApi('log', { key, value: v }); }
+  catch (e) { if (prev) d.logs[key] = prev; else delete d.logs[key]; S.rd.err = e.message; rdRender(); }
+}
+
+async function rdUseLive(key) {
+  const live = rdClean(S.rd.data.feed[key] || {});
+  S.rd.data.logs[key] = { v: live, by: 'live site', at: new Date().toISOString() };
+  rdRender();
+  try { await rdApi('log', { key, value: live }); } catch (e) { S.rd.err = e.message; rdLoad(); }
+}
+async function rdKeep(key) {
+  const live = rdClean(S.rd.data.feed[key] || {});
+  S.rd.data.acks = S.rd.data.acks || {};
+  S.rd.data.acks[key] = JSON.stringify(live);
+  rdRender();
+  try { await rdApi('ack', { key, live }); } catch (e) { S.rd.err = e.message; rdLoad(); }
+}
+
+/* ---- LOG ---- */
+function rdLogHtml() {
+  const d = S.rd.data;
+  const phase = S.rd.phase;
+  const items = [];
+  for (const e of Object.values(d.entries)) {
+    const cells = rdCells(e);
+    for (const k of Object.keys(cells)) {
+      const kind = rdKind(k);
+      const ph = kind === 'moto' ? 0 : kind === 'main' ? 2 : 1;
+      if (ph !== phase || !rdQualified(e.id, cells, k)) continue;
+      const key = `${e.id}|${k}`;
+      const c = cells[k], base = cells[rdBase(k)];
+      const { r, flag, by } = rdEff(key);
+      const tp = kind === 'moto' && base.tp;
+      const nums = String(c.num || '').match(/\d+/g);
+      items.push({ key, e, k, kind, c, base, r, flag, by, tp, lo: nums ? Math.min(...nums.map(Number)) : 9999,
+                   logged: kind === 'main' ? !!r.p1 : !!r.out });
+    }
+  }
+  items.sort((a, b) => a.lo - b.lo || a.e.name.localeCompare(b.e.name));
+  const lastLogged = Math.max(0, ...items.filter(i => i.logged && i.lo < 9999).map(i => i.lo));
+
+  let html = `<div class="rd-phases">${['MOTOS', 'QTR / SEMI', 'MAINS'].map((l, i) =>
+    `<button class="${i === phase ? 'on' : ''}" onclick="rdPhase(${i})">${l}</button>`).join('')}</div>
+    <div class="rd-note">Team races in running order. Qtrs, semis and mains appear once a rider transfers.</div>`;
+  if (!items.length) {
+    html += `<div class="rd-wait">${phase === 0 ? 'No team motos found for this day.' : 'Nobody has transferred here yet.'}</div>`;
+    return html;
+  }
+  html += '<div class="rd-list">';
+  for (const it of items) {
+    const { r } = it;
+    let chip = 'NOT RACED', cc = '';
+    if (r.out === 'T1' || r.out === 'T2') { chip = `TRANSFER RD ${r.out[1]}`; cc = 'go'; }
+    else if (r.out === 'T') { chip = 'TRANSFER'; cc = 'go'; }
+    else if (r.out === 'OUT') { chip = 'OUT'; cc = 'out'; }
+    else if (it.kind === 'main' && r.p1) { chip = RD_ORD[r.p1].toUpperCase(); cc = r.p1 <= 3 ? 'go' : 'or'; }
+    else if (it.tp && (r.p1 || r.p2 || r.p3)) { chip = `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}`; cc = 'or'; }
+    let state = it.logged ? 'logged' : '';
+    if (!it.logged && !it.flag && it.lo < lastLogged) { chip = 'NOT LOGGED'; cc = 'nl'; state = 'nl'; }
+    if (it.flag) { chip = 'CHECK'; cc = 'chk'; state = 'flag'; }
+    const isOpen = S.rd.open === it.key;
+    const sub = RD_NICE[rdBase(it.k)] + (it.kind === 'moto' ? ` ${it.c.code}` : ` ${it.kind === 'qtr' ? 'quarter' : it.kind}`)
+      + (it.kind === 'moto' && it.c.rule ? ` · ${rdRule(it.c.rule)}` : '');
+    const num = it.c.num || '—';
+    html += `<div class="rd-item ${isOpen ? 'open' : state}">
+      <button class="rd-row" onclick="rdToggle('${it.key}')">
+        <span class="rd-num ${num.length > 6 ? 'sm' : ''}">${esc(num)}</span>
+        <span class="rd-who"><b>${esc(it.e.name.split(' ')[0])}${it.e.guest ? ' ·' : ''}</b><span>${esc(sub)}</span></span>
+        <span class="rd-right"><span class="rd-chip ${cc}">${chip}</span>
+          <span class="rd-count">${it.base.count || '?'} <i>riders</i></span></span>
+      </button>`;
+    if (isOpen) {
+      html += '<div class="rd-panel">';
+      const places = (label, f) => `<span class="rd-lab">${label}</span><div class="rd-places">${
+        [1, 2, 3, 4, 5, 6, 7, 8].map(n => `<button class="${r[f] === n ? 'on' : ''}" onclick="rdSet('${it.key}','${f}',${n})">${n}</button>`).join('')}</div>`;
+      let outs = [];
+      if (it.kind === 'main') html += places('FINISH', 'p1');
+      else if (it.tp) {
+        html += places('ROUND 1 PLACE', 'p1') + places('ROUND 2 PLACE', 'p2') + places('ROUND 3 PLACE', 'p3');
+        outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
+      } else if (it.kind === 'moto') outs = [['T1', 'RD 1 TRANSFER'], ['T2', 'RD 2 TRANSFER'], ['OUT', 'OUT']];
+      else outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
+      if (it.flag) {
+        html += `<div class="rd-flag"><b>RESULTS DON'T MATCH</b>
+          <div>Logged: ${esc(rdDescribe(it.kind, r))} · Live site: ${esc(rdDescribe(it.kind, it.flag))}</div>
+          <div class="rd-outs"><button onclick="rdUseLive('${it.key}')">USE LIVE SITE</button>
+          <button onclick="rdKeep('${it.key}')">KEEP LOGGED</button></div></div>`;
+      }
+      if (it.tp && (r.p1 || r.p2 || r.p3)) {
+        html += `<div class="rd-tp">Total points so far: ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}. Mark transfer once points post.</div>`;
+      }
+      if (outs.length) {
+        html += `<div class="rd-outs">${outs.map(([val, label]) =>
+          `<button class="${r.out === val ? 'on' : ''} ${val === 'OUT' ? 'x' : ''}" onclick="rdSet('${it.key}','out','${val}')">${label}</button>`).join('')}</div>`;
+      }
+      if (it.by) html += `<div class="rd-by">Logged by ${esc(it.by)}</div>`;
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  return html + '</div>';
+}
+
+/* ---- BOARD ---- */
+function rdBoardHtml() {
+  const d = S.rd.data;
+  let transfers = 0, rd1 = 0, logged = 0, total = 0;
+  let cards = '';
+  const riders = Object.values(d.entries).sort((a, b) => a.name.localeCompare(b.name));
+  for (const e of riders) {
+    const cells = rdCells(e);
+    const ok = k => cells[k] && rdQualified(e.id, cells, k);
+    let hasFlag = false;
+    const cell = (k, label) => {
+      if (!k) return '<div class="rd-cell empty"><small>&nbsp;</small><b>–</b><small>&nbsp;</small></div>';
+      const { r, flag } = rdEff(`${e.id}|${k}`);
+      const kind = rdKind(k);
+      const tp = kind === 'moto' && cells[k].tp;
+      total++;
+      let cls = '', status = 'NOT RACED';
+      if (rdIsT(r.out)) { transfers++; logged++; if (r.out === 'T1') rd1++; cls = 'go'; status = r.out === 'T' ? 'TRANSFER' : `TRANSFER RD ${r.out[1]}`; }
+      else if (r.out === 'OUT') { logged++; cls = 'out'; status = 'OUT'; }
+      else if (kind === 'main' && r.p1) { logged++; cls = r.p1 <= 3 ? 'pod' : 'or'; status = RD_ORD[r.p1].toUpperCase(); }
+      else if (tp && (r.p1 || r.p2 || r.p3)) { cls = 'or'; status = `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)} · WAITING`; }
+      if (flag) { hasFlag = true; cls += ' chk'; status = 'CHECK'; }
+      return `<div class="rd-cell ${cls}"><small>${esc(label)}</small><b>${esc(String(cells[k].num || '—').replace(/ · /g, ' '))}</b><small>${status}</small></div>`;
+    };
+    const rows = RD_TYPES.filter(t => cells[t]).map(t => {
+      const semi = ok(t + 'S') ? t + 'S' : null;
+      const qtr = ok(t + 'Q') ? t + 'Q' : null;
+      if (semi && qtr) { total++; logged++; transfers++; }
+      const elim = semi || qtr;
+      const main = ok(t + 'M') ? t + 'M' : null;
+      return `<div class="rd-brow"><span>${RD_NICE[t].toUpperCase()}</span>${cell(t, cells[t].code || '')}${
+        cell(elim, elim ? (semi ? (qtr ? 'QTR ✓ · SEMI' : 'SEMI') : 'QTR') : '')}${cell(main, main ? 'MAIN' : '')}</div>`;
+    }).join('');
+    const back = !!S.rd.flipped[e.id];
+    let inner = rows;
+    if (back) {
+      inner = RD_TYPES.filter(t => cells[t]).map(t => {
+        const m = cells[t];
+        const gates = (m.gates || []).filter(Boolean);
+        const lines = [
+          `Moto ${esc(m.num)} · ${esc(m.code)} · ${esc(m.rule || '')} · ${m.count} riders`,
+          `${gates.length ? `Gates ${gates.join(' / ')} · ` : ''}${esc(rdDescribe('moto', rdEff(`${e.id}|${t}`).r))}`,
+        ];
+        for (const [k, lab] of [[t + 'Q', 'Qtr'], [t + 'S', 'Semi'], [t + 'M', 'Main']]) {
+          if (!ok(k)) continue;
+          const c = cells[k];
+          lines.push(`${lab} ${esc(c.num || 'not posted')}${c.gate ? ` · gate ${c.gate}` : ''} · ${esc(rdDescribe(rdKind(k), rdEff(`${e.id}|${k}`).r))}`);
+        }
+        return `<div class="rd-det"><b>${RD_NICE[t].toUpperCase()}</b>${lines.map(l => `<span>${l}</span>`).join('')}</div>`;
+      }).join('');
+    }
+    cards += `<button class="rd-card ${hasFlag ? 'flag' : ''}" onclick="rdFlip('${e.id}')">
+      <div class="rd-card-top"><b>${esc(e.name.split(' ')[0].toUpperCase())}</b><span>${back ? 'TAP TO FLIP BACK' : 'TAP FOR DETAILS'}</span></div>
+      ${inner}</button>`;
+  }
+  return `<div class="rd-stats">
+      <div class="rd-stat g"><small>TRANSFERS</small><b>${transfers}</b></div>
+      <div class="rd-stat"><small>RD 1</small><b>${rd1}</b></div>
+      <div class="rd-stat"><small>LOGGED</small><b>${logged}<i> / ${total}</i></b></div>
+    </div>
+    <div class="rd-cols"><span></span><span>MOTO</span><span>QTR / SEMI</span><span>MAIN</span></div>
+    <div class="rd-list">${cards || '<div class="rd-wait">No team motos found for this day.</div>'}</div>`;
+}
+
+/* ---- ADMIN: team sheets ---- */
+function rdLevel(type, code) {
+  if (type !== 'class') return 'X';
+  const c = String(code || '').toLowerCase();
+  if (/gx$/.test(c)) return 'GX';
+  if (/n$/.test(c)) return 'N';
+  if (/i$/.test(c)) return 'I';
+  if (/x$/.test(c)) return 'X';
+  return '';
+}
+
+function rdScore(id, type) {
+  const d = S.rd.data;
+  const e = d.entries[id];
+  if (!d.loaded) return { state: 'pending' };
+  if (!e || !e.races[type]) return { state: 'none', pts: 0 };
+  const cells = rdCells(e);
+  const r = k => rdEff(`${id}|${k}`).r;
+  const m = cells[type];
+  const place = cells[type + 'M'] ? r(type + 'M').p1 : 0;
+  if (place) {
+    const lvl = rdLevel(type, m.code);
+    if (!lvl) return { state: 'nolevel' };
+    const fp = RD_PTS[lvl][place];
+    return { state: 'scored', pts: m.count + fp, fp, place, count: m.count };
+  }
+  if (['', 'Q', 'S'].some(s => cells[type + s] && r(type + s).out === 'OUT')) return { state: 'dnq', pts: 0 };
+  return { state: 'pending' };
+}
+
+function rdClassesFor(id) {
+  const d = S.rd.data;
+  if (d.dayClasses && d.dayClasses[id]) return d.dayClasses[id];
+  return (d.roster.find(r => r.id === id) || {}).classes || [];
+}
+
+function rdAdminRows() {
+  const d = S.rd.data;
+  const rows = [];
+  const seen = new Set();
+  for (const rr of d.roster) {
+    const types = d.loaded ? RD_TYPES.filter(t => d.entries[rr.id]?.races[t]) : rdClassesFor(rr.id);
+    for (const t of types) { rows.push({ id: rr.id, name: rr.name, type: t }); seen.add(`${rr.id}|${t}`); }
+  }
+  // A pick for a class the rider did not race still shows (it scores 0).
+  for (const p of [...d.picks.s1, ...d.picks.s2]) {
+    if (seen.has(`${p.id}|${p.type}`)) continue;
+    const rr = d.roster.find(x => x.id === p.id) || d.entries[p.id];
+    if (rr) { rows.push({ id: p.id, name: rr.name, type: p.type }); seen.add(`${p.id}|${p.type}`); }
+  }
+  return rows.map(r => ({ ...r, key: `${r.id}|${r.type}`, s: rdScore(r.id, r.type) }));
+}
+
+function rdSheetOf(key) {
+  const p = S.rd.data.picks;
+  if (p.s1.some(x => `${x.id}|${x.type}` === key)) return 1;
+  if (p.s2.some(x => `${x.id}|${x.type}` === key)) return 2;
+  return 0;
+}
+
+async function rdPick(id, type, n) {
+  const d = S.rd.data;
+  if (d.locked) return;
+  const key = `${id}|${type}`;
+  const cur = rdSheetOf(key);
+  const picks = { s1: d.picks.s1.filter(x => `${x.id}|${x.type}` !== key), s2: d.picks.s2.filter(x => `${x.id}|${x.type}` !== key) };
+  if (cur !== n) {
+    const list = picks[`s${n}`];
+    if (list.length >= 6 || list.some(x => x.id === id)) return;
+    list.push({ id, type });
+  }
+  const prev = d.picks;
+  d.picks = picks; rdRender();
+  try { await rdApi('picks', { picks }); }
+  catch (e) { d.picks = prev; S.rd.err = e.message; rdRender(); }
+}
+
+async function rdLock() {
+  const d = S.rd.data;
+  d.locked = !d.locked; rdRender();
+  try { await rdApi('lock', { locked: d.locked }); }
+  catch (e) { d.locked = !d.locked; S.rd.err = e.message; rdRender(); }
+}
+
+function rdEdit(id) {
+  if (S.rd.data.loaded) return;
+  S.rd.editing = S.rd.editing === id ? null : id; rdRender();
+}
+function rdScope(s) { S.rd.scope = s; rdRender(); }
+
+async function rdFlipClass(id, type) {
+  const d = S.rd.data;
+  const cur = rdClassesFor(id);
+  const next = RD_TYPES.filter(t => (t === type ? !cur.includes(t) : cur.includes(t)));
+  const scope = S.rd.scope;
+  if (scope === 'season') {
+    const rr = d.roster.find(r => r.id === id); if (rr) rr.classes = next;
+    if (d.dayClasses) delete d.dayClasses[id];
+  } else {
+    d.dayClasses = { ...(d.dayClasses || {}), [id]: next };
+  }
+  // Removing a class removes that pick.
+  const picks = { s1: d.picks.s1.filter(x => !(x.id === id && !next.includes(x.type))),
+                  s2: d.picks.s2.filter(x => !(x.id === id && !next.includes(x.type))) };
+  const pickChanged = picks.s1.length !== d.picks.s1.length || picks.s2.length !== d.picks.s2.length;
+  d.picks = picks;
+  rdRender();
+  try {
+    await rdApi('classes', { riderId: id, types: next, scope });
+    if (pickChanged && !d.locked) await rdApi('picks', { picks });
+  } catch (e) { S.rd.err = e.message; rdLoad(); }
+}
+
+function rdAdminHtml() {
+  const d = S.rd.data;
+  if (!d.roster) return '<div class="rd-wait">Admins only.</div>';
+  const rows = rdAdminRows();
+  const sheet = [1, 2].map(n => {
+    const on = rows.filter(r => rdSheetOf(r.key) === n);
+    const vals = on.filter(r => r.s.pts !== undefined).map(r => r.s.pts).sort((a, b) => b - a);
+    const top4 = vals.slice(0, 4);
+    return { n, on, total: top4.reduce((a, b) => a + b, 0), cutoff: top4.length === 4 ? top4[3] : 0 };
+  });
+  const dayName = RD_DAYNAME[d.day?.day] || 'Today';
+  let html = `<div class="rd-sheets">
+    ${sheet.map(s => `<div class="rd-stat ${s.n === 1 ? 'g' : ''}" style="${s.n === 2 ? 'border-color:#ff5500;background:#1f1208' : ''}">
+      <small style="${s.n === 2 ? 'color:#ff5500' : ''}">SHEET ${s.n} · ${s.on.length}/6</small><b>${s.total}</b></div>`).join('')}
+    <button class="rd-lock ${d.locked ? 'on' : ''}" onclick="rdLock()">${d.locked ? '🔒 LOCKED' : 'LOCK'}</button>
+  </div>
+  <div class="rd-note">${d.locked ? 'Sheets are turned in. Scores still fill in after the race. Tap LOCKED to change picks.'
+    : d.loaded ? 'Picks match what each rider raced. A picked class they did not race scores 0. Best 4 count.'
+    : 'Pick before motos post. Tap a name to change that rider’s classes.'}</div>`;
+
+  if (S.rd.editing) {
+    const rr = d.roster.find(r => r.id === S.rd.editing);
+    const cur = rdClassesFor(S.rd.editing);
+    html += `<div class="rd-edit">
+      <div class="rd-grp"><b>${esc((rr?.name || '').toUpperCase())}</b><span>races</span></div>
+      <div class="rd-outs">${RD_TYPES.map(t => `<button class="${cur.includes(t) ? 'on' : ''}" onclick="rdFlipClass('${S.rd.editing}','${t}')">${RD_NICE[t].toUpperCase()}</button>`).join('')}</div>
+      <div class="rd-outs">${[['season', 'THIS SEASON'], ['day', `${dayName.toUpperCase()} ONLY`]].map(([k, l]) =>
+        `<button class="${S.rd.scope === k ? 'on' : ''}" onclick="rdScope('${k}')">${l}</button>`).join('')}</div>
+      <div class="rd-outs"><button onclick="rdEdit('${S.rd.editing}')">DONE</button></div>
+    </div>`;
+  }
+
+  const byPts = (a, b) => ((b.s.pts ?? -1) - (a.s.pts ?? -1)) || a.name.localeCompare(b.name);
+  const card = r => {
+    const sh = rdSheetOf(r.key);
+    const info = sh ? sheet[sh - 1] : null;
+    const counts = !!(info && r.s.pts > 0 && r.s.pts >= info.cutoff);
+    const code = d.loaded && d.entries[r.id]?.races[r.type] ? d.entries[r.id].races[r.type].code : '';
+    let pts = '–', math = 'Not raced yet', col = '#5a5a5a';
+    if (r.s.state === 'scored') { pts = r.s.pts; col = '#fff'; math = `${r.s.count} riders + ${RD_ORD[r.s.place]} (${r.s.fp})`; }
+    else if (r.s.state === 'dnq') { pts = '0'; math = 'DNQ · no points'; }
+    else if (r.s.state === 'none') { pts = '0'; math = 'Did not race this class'; }
+    else if (r.s.state === 'nolevel') { pts = '?'; col = '#ff5500'; math = 'Class level unknown'; }
+    const bd = sh ? (counts || !d.loaded ? (sh === 1 ? '#38f100' : '#ff5500') : (sh === 1 ? '#1f4d10' : '#5a2a10')) : '#161616';
+    const btn = n => {
+      const on = sh === n;
+      const blocked = !on && (d.locked || sheet[n - 1].on.length >= 6 || sheet[n - 1].on.some(x => x.id === r.id));
+      return `<button class="rd-sbtn ${on ? 's' + n : ''}" ${blocked ? 'disabled' : ''} ${d.locked && on ? 'disabled' : ''}
+        onclick="rdPick('${r.id}','${r.type}',${n})">S${n}</button>`;
+    };
+    return `<div class="rd-pick" style="border-color:${bd}">
+      <span class="rd-who" onclick="rdEdit('${r.id}')"><b>${esc(r.name.split(' ')[0])}
+        ${counts ? `<span class="rd-tag" style="color:${sh === 1 ? '#38f100' : '#ff5500'}">COUNTS</span>` : ''}</b>
+        <span>${RD_NICE[r.type]}${code ? ' · ' + esc(code) : ''} · ${esc(math)}</span></span>
+      <span class="rd-pts" style="color:${col}">${pts}</span>${btn(1)}${btn(2)}</div>`;
+  };
+  for (const n of [1, 2]) {
+    const list = rows.filter(r => rdSheetOf(r.key) === n).sort(byPts);
+    if (!list.length) continue;
+    html += `<div class="rd-grp"><b style="color:${n === 1 ? '#38f100' : '#ff5500'}">SHEET ${n}</b><span>best 4 count</span></div>
+      <div class="rd-list">${list.map(card).join('')}</div>`;
+  }
+  const rest = rows.filter(r => !rdSheetOf(r.key)).sort(byPts);
+  html += `<div class="rd-grp"><b style="color:#bdbdbd">${d.loaded ? 'EVERYONE ELSE TODAY' : 'ROSTER · USUAL CLASSES'}</b>
+    <span>${d.loaded ? 'by main points' : 'tap a name to change classes'}</span></div>
+    <div class="rd-list">${rest.map(card).join('') || '<div class="rd-note">Everyone is on a sheet.</div>'}</div>`;
+  return html;
+}
+
+SCREENS.raceday = () => {
+  const d = S.rd.data;
+  const tab = S.rd.tab;
+  const canSync = !!(d && d.me && (d.me.helper || d.me.admin));
+  const titles = { log: 'RACE DAY RESULTS', board: 'MOTO BOARD', admin: 'TEAM SHEETS' };
+  const days = d?.days || [];
+  const dayOpts = days.map(x => `<option value="${esc(x.key)}" ${x.key === S.rd.day ? 'selected' : ''}>${esc(rdDayLabel(x))}${x.date ? ' · ' + esc(rdShortDate(x.date)) : ''}</option>`).join('');
+  let html = `<div class="rd"><div class="rd-body">
+    <div class="rd-head">
+      <div class="rd-title"><b>${titles[tab]}</b>
+        <span class="rd-daypick">${esc(rdDayLabel(d?.day)) || 'Loading…'} ▾
+          ${days.length ? `<select onchange="rdSetDay(this.value)" aria-label="Race day">${dayOpts}</select>` : ''}</span></div>
+      ${canSync ? `<div class="rd-sync">
+        <button class="rd-syncbtn" onclick="rdSync()" ${S.rd.busy ? 'disabled' : ''}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"></path><polyline points="21 3 21 9 15 9"></polyline></svg>
+          ${S.rd.busy ? 'LOADING…' : d.loaded ? 'UPDATE RESULTS' : 'LOAD MOTOS'}</button>
+        ${d.updated ? `<span class="rd-synced">Updated ${esc(rdTime(d.updated))}</span>` : ''}
+      </div>` : ''}
+    </div>`;
+  if (S.rd.err) html += `<div class="rd-err">${esc(S.rd.err)}</div>`;
+  if (!d) html += '<div class="spinner"></div>';
+  else if (tab === 'admin') html += rdAdminHtml();
+  else if (!d.loaded) {
+    html += `<div class="rd-wait"><big>Waiting for motos</big>${canSync
+      ? 'Tap LOAD MOTOS once motos post on the USA BMX live site.'
+      : 'Team motos show up here as soon as they post.'}</div>`;
+  } else html += tab === 'board' ? rdBoardHtml() : rdLogHtml();
+  html += '</div>';
+  const tabs = [['log', 'LOG'], ['board', 'BOARD']];
+  if (d?.me?.admin) tabs.push(['admin', 'ADMIN']);
+  html += `<nav class="rd-tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="rdTab('${k}')">${l}</button>`).join('')}</nav></div>`;
+  return html;
+};
+
+/* ---- Race Day helper toggle (rider profile, admin only) ---- */
+async function loadRaceHelpers() {
+  try { S.raceHelpers = new Set((await rdApi('helpers')).helpers || []); }
+  catch { S.raceHelpers = new Set(); }
+  if (S.screen === 'riderProfile') render();
+}
+function raceHelperRow(gid) {
+  if (!S.isAdmin || !S.raceHelpers) return '';
+  const on = S.raceHelpers.has(gid);
+  return `<div class="rd-help"><div><div class="tl">Race Day helper</div>
+    <div class="tn">Can load motos and update results. No team sheet access.</div></div>
+    <button class="switch ${on ? 'on' : ''}" onclick="setRaceHelper('${gid}',${!on})" aria-label="Race Day helper"></button></div>`;
+}
+async function setRaceHelper(gid, on) {
+  if (on) S.raceHelpers.add(gid); else S.raceHelpers.delete(gid);
+  render();
+  try { await rdApi('setHelper', { targetGid: gid, on }); }
+  catch (e) { alert(e.message); loadRaceHelpers(); }
+}
 </script>
 </body>
 </html>
