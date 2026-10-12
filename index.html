@@ -3782,12 +3782,16 @@ async function orderStatus(familyKey, status) {
 /* ---- vendor catalog: maps loose item names to the vendor's product names ---- */
 // Order matters: Flow is checked before plain Werx-R.
 const VENDOR_CATALOG = [
+  // 2026 design on clearance (not Sonar). Checked before the Sonar pants.
+  { match: /rayce(?!\s*sonar).*pant/i, adult: 'Rayce Bicycle Pants (2026 clearance)', youth: 'Youth Rayce Bicycle Pants (2026 clearance)',
+    adultUrl: '', youthUrl: '',
+    youthSize: s => /^y/i.test(s) || (/^\d+$/.test(s) && Number(s) <= 26) },
   { match: /pant/i, adult: 'Rayce Sonar Bicycle Pants', youth: 'Youth Rayce Sonar Bicycle Pants',
     adultUrl: 'https://www.flyracing.com/rayce-sonar-bicycle-pants/', youthUrl: 'https://www.flyracing.com/youth-rayce-sonar-bicycle-pants/',
     youthSize: s => /^y/i.test(s) || (/^\d+$/.test(s) && Number(s) <= 26) },
   { match: /flow/i, adult: 'Werx-R Flow Carbon Bicycle Helmet', youth: 'Youth Werx-R Flow Carbon Helmet',
     adultUrl: 'https://www.flyracing.com/werx-r-flow-carbon-helmet/', youthUrl: 'https://www.flyracing.com/youth-werx-r-flow-carbon-helmet/' },
-  { match: /werx|helmet/i, adult: 'Werx-R Carbon Bicycle Helmet', youth: 'Youth Werx-R Carbon Helmet',
+  { match: /werx/i, adult: 'Werx-R Carbon Bicycle Helmet', youth: 'Youth Werx-R Carbon Helmet',
     adultUrl: 'https://www.flyracing.com/werx-r-carbon-helmet-b0ls/', youthUrl: 'https://www.flyracing.com/youth-werx-r-carbon-helmet-a38p/' },
   { match: /pro\s*-?\s*lite/i, adult: 'Pro Lite Gloves', youth: 'Youth Pro Lite Gloves',
     adultUrl: 'https://www.flyracing.com/pro-lite-gloves/', youthUrl: 'https://www.flyracing.com/youth-pro-lite-gloves/' },
