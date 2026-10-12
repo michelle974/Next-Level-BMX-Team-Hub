@@ -95,8 +95,8 @@
 
   /* ---------- scrolling body ---------- */
   main {
-    background: var(--white); flex: 1; overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    background: var(--white); flex: 1; overflow-y: auto; overflow-x: hidden;
+    -webkit-overflow-scrolling: touch; min-width: 0;
     padding: 22px 18px 40px;
   }
   main.home-view { padding: 0; }
@@ -191,8 +191,9 @@
     font-size: 14.5px; padding: 7px 0; border-bottom: 1px solid #f0f0f0;
   }
   .famline:last-of-type { border-bottom: none; }
-  .famline .fl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .famline .fr { font-weight: 700; flex-shrink: 0; }
+  /* Long item names wrap inside the box instead of pushing the page sideways. */
+  .famline .fl { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .famline .fr { font-weight: 700; flex: 0 1 auto; max-width: 62%; min-width: 0; text-align: right; overflow-wrap: anywhere; }
   .famline.miss .fl, .famline.miss .fr { color: var(--red); }
   .jseg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
   .jseg button { padding: 10px 4px; border-radius: 10px; border: 2px solid var(--line); background: #fff;
@@ -208,8 +209,12 @@
   .oeline input, .oeline select { padding: 12px; font-size: 16px; }
   .oehead { display: flex; justify-content: space-between; align-items: center; }
   .oegrid { display: grid; grid-template-columns: 1.2fr .8fr 1fr; gap: 8px; }
+  .oegrid > * { min-width: 0; }
+  .oeline select { max-width: 100%; text-overflow: ellipsis; }
   .banner.invoice .t1 { color: var(--orange); }
   .jinv-line { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15.5px; }
+  .jinv-line > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+  .jinv-line > span:last-child { flex-shrink: 0; }
   .jinv-line small { display: block; color: var(--muted); font-size: 13.5px; }
   .jinv-tot { display: flex; justify-content: space-between; padding: 14px 0 0; font-size: 20px; font-weight: 800; }
   .famtot {
@@ -244,7 +249,7 @@
   /* ---------- inputs ---------- */
   label { display: block; font-size: 15px; font-weight: 700; margin: 20px 0 7px; }
   input, select, textarea {
-    width: 100%; padding: 15px; font-size: 17px; font-family: inherit;
+    width: 100%; max-width: 100%; min-width: 0; padding: 15px; font-size: 17px; font-family: inherit;
     border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--text);
   }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--green); }
