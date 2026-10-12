@@ -862,6 +862,35 @@ function openExternal(url) {
   if (isStandalone()) window.location.href = url;
   else window.open(url, '_blank', 'noopener');
 }
+// Opens a link fully outside the Team Hub window (used for the Training App).
+// iPhone/iPad home-screen app: x-safari-https:// hands the page to real Safari
+// (iOS 17+); if Safari doesn't take it, fall back to openExternal.
+// Android home-screen app: an intent:// link opens Chrome (or the installed
+// training app) instead of an overlay inside the Team Hub.
+function openOutside(url) {
+  const ua = navigator.userAgent;
+  const iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const android = /Android/.test(ua);
+  if (!isStandalone() || !/^https?:\/\//.test(url)) return openExternal(url);
+  if (iOS) {
+    let left = false;
+    const onHide = () => { if (document.hidden) left = true; };
+    document.addEventListener('visibilitychange', onHide);
+    window.location.href = url.replace(/^http(s?):\/\//, 'x-safari-http$1://');
+    setTimeout(() => {
+      document.removeEventListener('visibilitychange', onHide);
+      if (!left && !document.hidden) openExternal(url);
+    }, 900);
+    return;
+  }
+  if (android) {
+    const scheme = url.startsWith('https') ? 'https' : 'http';
+    window.location.href = 'intent://' + url.replace(/^https?:\/\//, '') +
+      '#Intent;scheme=' + scheme + ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+    return;
+  }
+  openExternal(url);
+}
 
 /* ============ nav ============ */
 function go(screen, push = true) {
@@ -2204,7 +2233,7 @@ async function tapTile(gid) {
   if (t.label === 'Gear Ordering') return go('gear');
   if (t.label === 'Team Forms') return openForms();
   if (t.label === 'Schedule') return openSchedule();
-  if (t.link && t.link.startsWith('http')) return openExternal(t.link);
+  if (t.link && t.link.startsWith('http')) return /training app/i.test(t.label) ? openOutside(t.link) : openExternal(t.link);
   alert(`${t.label} isn't set up yet — the link is coming soon.`);
 }
 
