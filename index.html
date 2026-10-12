@@ -863,24 +863,23 @@ function openExternal(url) {
   else window.open(url, '_blank', 'noopener');
 }
 // Opens a link fully outside the Team Hub window (used for the Training App).
-// iPhone/iPad home-screen app: x-safari-https:// hands the page to real Safari
-// (iOS 17+); if Safari doesn't take it, fall back to openExternal.
+// iPhone/iPad home-screen app on iOS 17+: x-safari-https:// hands the page to
+// real Safari. Older iOS can't do that, so it opens the normal way.
 // Android home-screen app: an intent:// link opens Chrome (or the installed
 // training app) instead of an overlay inside the Team Hub.
+function iosMajor() {
+  const m = navigator.userAgent.match(/OS (\d+)_\d+(?:_\d+)? like Mac OS X/) ||
+            navigator.userAgent.match(/Version\/(\d+)(?:\.\d+)* .*Safari/);
+  return m ? parseInt(m[1], 10) : 0;
+}
 function openOutside(url) {
   const ua = navigator.userAgent;
   const iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const android = /Android/.test(ua);
   if (!isStandalone() || !/^https?:\/\//.test(url)) return openExternal(url);
   if (iOS) {
-    let left = false;
-    const onHide = () => { if (document.hidden) left = true; };
-    document.addEventListener('visibilitychange', onHide);
-    window.location.href = url.replace(/^http(s?):\/\//, 'x-safari-http$1://');
-    setTimeout(() => {
-      document.removeEventListener('visibilitychange', onHide);
-      if (!left && !document.hidden) openExternal(url);
-    }, 900);
+    if (iosMajor() >= 17) window.location.href = url.replace(/^http(s?):\/\//, 'x-safari-http$1://');
+    else openExternal(url);
     return;
   }
   if (android) {
