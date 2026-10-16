@@ -106,6 +106,16 @@ function verifySession(gid, sig) {
 
 const normName = n => String(n || '').toLowerCase().replace(/[^a-z]/g, '');
 
+/* Guest riders: Riders-section records Michelle manages from Admin, with no
+   login. HUB_VISIBLE decides whether the rest of the team sees them on the
+   roster and RSVP lists. Race Day ignores both flags (guests race for the team).
+   A guest stops being a guest once a family account claims or links them. */
+const isGuest = f => String(f.GUEST || '').toLowerCase() === 'true';
+const teamCanSee = f => !isGuest(f) || String(f.HUB_VISIBLE || '').toLowerCase() === 'true';
+const RACE_TYPES = ['open', 'cruiser', 'class'];
+const cleanRaceClasses = v => RACE_TYPES
+  .filter(t => String(v || '').toLowerCase().split(/[\s,]+/).includes(t)).join(',');
+
 function nameSimilarity(a, b) {
   a = normName(a); b = normName(b);
   if (!a || !b) return 0;
@@ -531,7 +541,10 @@ export default async function handler(req, res) {
           const existing = riders.find(r => normName(r.name) === normName(name));
           if (existing && !existing.fields.EMAIL) {
             gid = existing.gid;
-            await patchTask(gid, { ...account, ...(dob ? { DOB: dob } : {}) });
+            await patchTask(gid, {
+              ...account, ...(dob ? { DOB: dob } : {}),
+              ...(isGuest(existing.fields) ? { GUEST: 'false' } : {}),
+            });
           } else {
             gid = await createInSection(SECTIONS.riders, name,
               { ...freshDefaults, ...account, DOB: dob || '' });
@@ -548,7 +561,10 @@ export default async function handler(req, res) {
               linked.push({ gid: exact.gid, name: exact.name });
               const cur = splitIds(exact.fields.LINKED_PARENTS);
               if (!cur.includes(gid)) cur.push(gid);
-              await patchTask(exact.gid, { LINKED_PARENTS: cur.join(', ') });
+              await patchTask(exact.gid, {
+                LINKED_PARENTS: cur.join(', '),
+                ...(isGuest(exact.fields) ? { GUEST: 'false' } : {}),
+              });
               continue;
             }
             const fuzzy = riders
@@ -608,9 +624,11 @@ export default async function handler(req, res) {
         const me = await assertInProject(gid);
         const isAdmin = (parseNotes(me.notes || '').IS_ADMIN || '').toLowerCase() === 'true';
 
-        const [riders, parents] = await Promise.all([
+        const [allRiders, parents] = await Promise.all([
           listSection(SECTIONS.riders), listSection(SECTIONS.parents),
         ]);
+        // Hidden guests are left out entirely for everyone but admins.
+        const riders = isAdmin ? allRiders : allRiders.filter(r => teamCanSee(r.fields));
 
         // A BOTH account lives in the Riders section but acts as a parent too.
         // Every parent-side lookup must scan riders + parents, not parents alone.
@@ -651,8 +669,11 @@ export default async function handler(req, res) {
             email: show(f, 'EMAIL') ? f.EMAIL || '' : '',
             parents: kids,
             linkedRiders: kidsOf,
+            guest: isGuest(f),
           };
           if (isAdmin) {
+            entry.hubVisible = teamCanSee(f);
+            entry.raceClasses = f.RACE_CLASSES || '';
             entry.usabmx = f.USABMX || '';
             entry.emergencyContact = f.EMERGENCY_NAME || '';
             entry.emergencyPhone = f.EMERGENCY_PHONE || '';
@@ -1350,7 +1371,54 @@ export default async function handler(req, res) {
           if (!rP.includes(parentGid)) rP.push(parentGid);
         }
         await patchTask(parentGid, { LINKED_RIDERS: pR.join(', '), PENDING_MATCH: '' });
-        await patchTask(riderGid, { LINKED_PARENTS: rP.join(', ') });
+        const riderFields = parseNotes(rider.notes || '');
+        await patchTask(riderGid, {
+          LINKED_PARENTS: rP.join(', '),
+          // Linking a family account makes a guest a full team member.
+          ...(!unlink && isGuest(riderFields) ? { GUEST: 'false' } : {}),
+        });
+        return res.json({ ok: true });
+      }
+
+      /* ----- guest riders (admin) ----- */
+      case 'adminAddGuest': {
+        const { gid, session } = body;
+        await requireAdmin(gid, session);
+        const name = String(body.name || '').trim().replace(/\s+/g, ' ');
+        if (!name) return res.status(400).json({ error: 'Enter the rider\'s name.' });
+        const riders = await listSection(SECTIONS.riders);
+        const dupe = riders.find(r => normName(r.name) === normName(name));
+        if (dupe) return res.status(409).json({ error: `${dupe.name} is already on the roster.` });
+        const newGid = await createInSection(SECTIONS.riders, name, {
+          GUEST: 'true',
+          HUB_VISIBLE: body.hubVisible ? 'true' : 'false',
+          CREATED: new Date().toISOString().slice(0, 10),
+          USABMX: String(body.usabmx || '').replace(/\D/g, ''),
+          DOB: /^\d{4}-\d{2}-\d{2}$/.test(body.dob || '') ? body.dob : '',
+          PROFICIENCY: String(body.proficiency || '').trim(),
+          RACE_CLASSES: cleanRaceClasses(body.raceClasses) || 'class',
+        });
+        return res.json({ ok: true, gid: newGid });
+      }
+
+      case 'adminUpdateGuest': {
+        const { gid, session, riderGid } = body;
+        await requireAdmin(gid, session);
+        const t = await assertInProject(riderGid);
+        const f = parseNotes(t.notes || '');
+        if (!isGuest(f)) return res.status(409).json({ error: 'This rider is not a guest.' });
+        const u = {};
+        if (body.hubVisible !== undefined) u.HUB_VISIBLE = body.hubVisible ? 'true' : 'false';
+        if (body.usabmx !== undefined) u.USABMX = String(body.usabmx).replace(/\D/g, '');
+        if (body.dob !== undefined) u.DOB = /^\d{4}-\d{2}-\d{2}$/.test(body.dob) ? body.dob : '';
+        if (body.proficiency !== undefined) u.PROFICIENCY = String(body.proficiency).trim();
+        if (body.raceClasses !== undefined) u.RACE_CLASSES = cleanRaceClasses(body.raceClasses) || 'class';
+        if (body.endGuest) u.GUEST = 'false';
+        await patchTask(riderGid, u);
+        const name = String(body.name || '').trim().replace(/\s+/g, ' ');
+        if (name && name !== t.name) {
+          await asana(`/tasks/${riderGid}`, { method: 'PUT', body: JSON.stringify({ data: { name } }) });
+        }
         return res.json({ ok: true });
       }
 
@@ -1394,10 +1462,13 @@ export default async function handler(req, res) {
       case 'rsvpStatus': {
         const { gid, session, eventId } = body;
         if (!verifySession(gid, session)) return res.status(401).json({ error: 'Session invalid.' });
-        const [task, riders] = await Promise.all([
+        const [task, allRiders, me] = await Promise.all([
           findRsvpTask(eventId),
           listSection(SECTIONS.riders),
+          assertInProject(gid),
         ]);
+        const isAdmin = (parseNotes(me.notes || '').IS_ADMIN || '').toLowerCase() === 'true';
+        const riders = isAdmin ? allRiders : allRiders.filter(r => teamCanSee(r.fields));
         const rsvps = {};
         if (task) {
           for (const [k, v] of Object.entries(task.fields)) {

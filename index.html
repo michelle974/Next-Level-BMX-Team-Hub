@@ -988,8 +988,10 @@ function formStatusList() {
     return `<div class="sechead">Form Status</div>
       <div class="cmeta" style="padding:4px 0">Loading roster…</div>`;
   }
-  let html = `<div class="sechead">Form Status (${S.riders.length})</div>`;
-  for (const r of S.riders) {
+  // Guests never fill in team forms or pay the team fee.
+  const members = S.riders.filter(r => !r.guest);
+  let html = `<div class="sechead">Form Status (${members.length})</div>`;
+  for (const r of members) {
     const done = r.formStatus === 'Complete' && r.paymentStatus === 'Paid';
     html += `<div class="card flat" style="display:flex;align-items:center;gap:12px">
       <span style="font-size:20px">${done ? '🟢' : '⚪'}</span>
@@ -1497,7 +1499,9 @@ const SCREENS = {
         r.dob && fmtDOB(r.dob),
       ].filter(Boolean).join(' · ');
       let pill = '';
-      if (S.isAdmin) {
+      if (S.isAdmin && r.guest) {
+        pill = `<span class="pill grey">GUEST${r.hubVisible ? '' : ' · HIDDEN'}</span>`;
+      } else if (S.isAdmin) {
         pill = r.formStatus === 'Complete'
           ? (r.paymentStatus === 'Paid'
               ? '<span class="pill ok">✓ PAID</span>'
@@ -1531,7 +1535,7 @@ const SCREENS = {
     html += row('Race Number', esc(r.raceNumber));
     html += row('Email', mailLink(r.email));
     html += row('Phone', phoneLink(r.phone));
-    html += row('Jersey', r.jerseyStatus === 'Complete'
+    if (!r.guest) html += row('Jersey', r.jerseyStatus === 'Complete'
       ? esc(`${r.jerseySize} · #${r.jerseyNumber} · ${r.jerseyName}`
           + ((parseInt(r.jerseyQty, 10) || 1) > 1 ? ` · ×${parseInt(r.jerseyQty, 10)}` : ''))
       : '<span style="color:var(--muted)">Not set yet</span>');
@@ -1568,12 +1572,23 @@ const SCREENS = {
       html += `<button class="btn alt slim" style="margin-top:8px" onclick="startLinkParent('${r.gid}')">+ Link Parent</button>`;
     }
 
+    if (S.isAdmin && r.guest) {
+      html += `<div class="sechead warn">Guest rider</div>
+        <p class="sub">Managed by you. No login, no forms or fees. Always on Race Day.
+          Becomes a regular team member when a family account claims or is linked to this rider.</p>
+        ${guestFormHtml(r)}
+        <button class="btn" style="margin-top:18px" onclick="saveGuest('${r.gid}')">Save Guest</button>
+        <div id="gMsg"></div>`;
+    }
+
     if (S.isAdmin) {
       html += `<div class="sechead warn">Coaches only</div>`;
       if (r.role === 'BOTH') html += raceHelperRow(r.gid);
       html += row('USA BMX #', esc(r.usabmx));
       html += row('Emergency Contact', esc(r.emergencyContact));
       html += row('Emergency Phone', phoneLink(r.emergencyPhone));
+    }
+    if (S.isAdmin && !r.guest) {
       html += row('Form Status', esc(r.formStatus));
       html += row('Signed By', esc(r.signedBy));
       html += row('Signed Date', esc(fmtDate(r.signedDate)));
@@ -2056,8 +2071,18 @@ const SCREENS = {
   },
 
   /* ---------- admin ---------- */
+  addGuest: () => `
+    <h2>Add Guest Rider</h2>
+    <p class="sub">For riders who race with the team but don't have a Team Hub account.
+      They show on Race Day and team sheets right away. You decide if the team sees them.</p>
+    ${guestFormHtml(null)}
+    <button class="btn" style="margin-top:22px" onclick="addGuest()">Add Guest Rider</button>
+    <div id="gMsg"></div>`,
+
   admin: () => `
     <h2>Admin</h2><p class="sub">Tap a tile to edit its link, order, and visibility.</p>
+    <div class="sechead">Riders</div>
+    <button class="btn alt slim" onclick="go('addGuest')">+ Add Guest Rider</button>
     <div class="sechead">Orders</div>
     ${ordersAdminHtml()}
     <div class="sechead">Tiles</div>
@@ -2391,6 +2416,74 @@ async function unlinkParent(parentGid, riderGid) {
   try { await api('adminLink', { parentGid, riderGid, unlink: true }); S.history.pop(); await openRoster(); }
   catch (e) { alert(e.message); }
 }
+/* ---- guest riders (admin) ---- */
+const GUEST_PROFS = ['Novice', 'Intermediate', 'Expert', 'Girl Novice', 'Girl Intermediate', 'Girl Ex', 'Cruiser', 'Open'];
+
+// Shared form for Add Guest Rider and a guest's profile. r = null for a new guest.
+function guestFormHtml(r) {
+  const g = r || {};
+  const visible = r ? !!g.hubVisible : false;
+  const classes = String(r ? g.raceClasses : 'class').toLowerCase().split(',');
+  const tog = `onclick="this.classList.toggle('on')"`;
+  return `
+    <label>Visible to the team</label>
+    <div class="radio-row" id="g_vis">
+      <button class="${visible ? 'on' : ''}" data-v="1" onclick="gSetVis(true)">Visible</button>
+      <button class="${visible ? '' : 'on'}" data-v="0" onclick="gSetVis(false)">Hidden</button>
+    </div>
+    <label>Rider name</label><input id="g_name" value="${esc(g.name || '')}" placeholder="First and last name">
+    <label>USA BMX #</label><input id="g_usabmx" inputmode="numeric" value="${esc(g.usabmx || '')}">
+    <label>Birthday</label><input id="g_dob" type="date" value="${esc(g.dob || '')}">
+    <label>Proficiency</label>
+    <select id="g_prof"><option value="">Select…</option>
+      ${GUEST_PROFS.map(p => `<option ${(g.proficiency || (r ? '' : 'Expert')) === p ? 'selected' : ''}>${p}</option>`).join('')}
+    </select>
+    <label>Usual race classes</label>
+    <div class="radio-row" id="g_cls">
+      <button data-c="open" class="${classes.includes('open') ? 'on' : ''}" ${tog}>Open</button>
+      <button data-c="cruiser" class="${classes.includes('cruiser') ? 'on' : ''}" ${tog}>Cruiser</button>
+      <button data-c="class" class="${classes.includes('class') ? 'on' : ''}" ${tog}>Class</button>
+    </div>`;
+}
+
+function gSetVis(on) {
+  document.querySelectorAll('#g_vis button').forEach(b =>
+    b.classList.toggle('on', (b.dataset.v === '1') === on));
+}
+
+function guestFormValues() {
+  return {
+    name: document.getElementById('g_name').value.trim(),
+    usabmx: document.getElementById('g_usabmx').value.trim(),
+    dob: document.getElementById('g_dob').value,
+    proficiency: document.getElementById('g_prof').value,
+    raceClasses: [...document.querySelectorAll('#g_cls button.on')].map(b => b.dataset.c).join(','),
+    hubVisible: !!document.querySelector('#g_vis button[data-v="1"].on'),
+  };
+}
+
+async function addGuest() {
+  const v = guestFormValues();
+  if (!v.name) return msg('gMsg', 'Enter the rider\'s name.', 'err');
+  try {
+    msg('gMsg', 'Adding…', 'ok');
+    await api('adminAddGuest', v);
+    S.screen = S.history.pop() || 'home'; // back to Admin, then open the roster on top
+    await openRoster();
+  } catch (e) { msg('gMsg', e.message, 'err'); }
+}
+
+async function saveGuest(riderGid) {
+  const v = guestFormValues();
+  if (!v.name) return msg('gMsg', 'Enter the rider\'s name.', 'err');
+  try {
+    msg('gMsg', 'Saving…', 'ok');
+    await api('adminUpdateGuest', { riderGid, ...v });
+    S.screen = S.history.pop() || 'home'; // back to the roster, reloaded
+    await openRoster();
+  } catch (e) { msg('gMsg', e.message, 'err'); }
+}
+
 async function markPaid(riderGid, unpay) {
   try { await api('adminMarkPaid', { riderGid, unpay }); S.history.pop(); await openRoster(); }
   catch (e) { alert(e.message); }
