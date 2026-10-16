@@ -510,6 +510,8 @@
     letter-spacing: .5px; white-space: nowrap; background: transparent; color: #bdbdbd; }
   .rd-phases button.on { background: #38f100; color: #0a0a0a; }
   .rd-list { display: flex; flex-direction: column; gap: 6px; }
+  .rd-list.grouped { gap: 12px; }
+  .rd-rgrp { display: flex; flex-direction: column; gap: 4px; }
   .rd-item { border-radius: 10px; background: #161616; border: 2px solid #161616; }
   .rd-item.open { border-color: #ff5500; }
   .rd-item.logged { border-color: #1f4d10; }
@@ -3683,7 +3685,23 @@ function rdAdminHtml() {
   }
 
   const val = r => r.s.pts ?? rdPredict(r.id, r.type).exp;
-  const byPts = (a, b) => (val(b) - val(a)) || a.name.localeCompare(b.name);
+  // Each rider's classes stay together. Riders go strongest first (their best
+  // class), then that rider's classes by points.
+  const grouped = list => {
+    const best = {};
+    for (const r of list) best[r.id] = Math.max(best[r.id] ?? -Infinity, val(r) || 0);
+    return list.slice().sort((a, b) => (best[b.id] - best[a.id]) || a.name.localeCompare(b.name)
+      || (val(b) - val(a)) || RD_TYPES.indexOf(a.type) - RD_TYPES.indexOf(b.type));
+  };
+  const listHtml = list => {
+    const out = [];
+    for (const r of grouped(list)) {
+      const last = out[out.length - 1];
+      if (last && last.id === r.id) last.cards.push(card(r));
+      else out.push({ id: r.id, cards: [card(r)] });
+    }
+    return out.map(g => `<div class="rd-rgrp">${g.cards.join('')}</div>`).join('');
+  };
   const card = r => {
     const sh = rdSheetOf(r.key);
     const info = sh ? sheet[sh - 1] : null;
@@ -3711,15 +3729,15 @@ function rdAdminHtml() {
       <span class="rd-pts" style="color:${col}">${pts}</span>${btn(1)}${btn(2)}</div>`;
   };
   for (const n of [1, 2]) {
-    const list = rows.filter(r => rdSheetOf(r.key) === n).sort(byPts);
+    const list = rows.filter(r => rdSheetOf(r.key) === n);
     if (!list.length) continue;
     html += `<div class="rd-grp"><b style="color:${n === 1 ? '#38f100' : '#ff5500'}">SHEET ${n}</b><span>best 4 count</span></div>
-      <div class="rd-list">${list.map(card).join('')}</div>`;
+      <div class="rd-list grouped">${listHtml(list)}</div>`;
   }
-  const rest = rows.filter(r => !rdSheetOf(r.key)).sort(byPts);
+  const rest = rows.filter(r => !rdSheetOf(r.key));
   html += `<div class="rd-grp"><b style="color:#bdbdbd">${d.loaded ? 'EVERYONE ELSE TODAY' : 'ROSTER · USUAL CLASSES'}</b>
     <span>${d.loaded ? 'by main points' : 'tap a name to change classes'}</span></div>
-    <div class="rd-list">${rest.map(card).join('') || '<div class="rd-note">Everyone is on a sheet.</div>'}</div>`;
+    <div class="rd-list grouped">${listHtml(rest) || '<div class="rd-note">Everyone is on a sheet.</div>'}</div>`;
   return html;
 }
 
