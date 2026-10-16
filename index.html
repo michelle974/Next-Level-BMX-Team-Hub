@@ -2462,26 +2462,33 @@ function guestFormValues() {
   };
 }
 
+let guestBusy = false; // a double tap must not create the rider twice
 async function addGuest() {
+  if (guestBusy) return;
   const v = guestFormValues();
   if (!v.name) return msg('gMsg', 'Enter the rider\'s name.', 'err');
+  guestBusy = true;
   try {
     msg('gMsg', 'Adding…', 'ok');
     await api('adminAddGuest', v);
     S.screen = S.history.pop() || 'home'; // back to Admin, then open the roster on top
     await openRoster();
   } catch (e) { msg('gMsg', e.message, 'err'); }
+  finally { guestBusy = false; }
 }
 
 async function saveGuest(riderGid) {
+  if (guestBusy) return;
   const v = guestFormValues();
   if (!v.name) return msg('gMsg', 'Enter the rider\'s name.', 'err');
+  guestBusy = true;
   try {
     msg('gMsg', 'Saving…', 'ok');
     await api('adminUpdateGuest', { riderGid, ...v });
     S.screen = S.history.pop() || 'home'; // back to the roster, reloaded
     await openRoster();
   } catch (e) { msg('gMsg', e.message, 'err'); }
+  finally { guestBusy = false; }
 }
 
 async function markPaid(riderGid, unpay) {
