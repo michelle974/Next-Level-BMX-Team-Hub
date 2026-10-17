@@ -282,12 +282,15 @@ function parseFeed(feed, riders, opts = {}) {
     acById[ac.id] = { name, rounds: (ac.rounds || []).map(o => Object.values(o)[0]).filter(Boolean) };
   }
 
+  const roundMotos = {}; // acId -> roundName -> [moto numbers]
   const present = {};   // acId -> roundName -> Set(serial)
   const hits = {};      // riderId|acId -> {rider, acId, groups: {round: [{mg, r}]}}
   for (const mg of Object.values(race.motogroups || {})) {
     const rname = Object.keys(mg.round || {})[0] || 'Moto';
     const acId = mg.ageclass_id;
     if (!acById[acId]) continue;
+    // Every moto posted for each class round, riders listed yet or not.
+    ((roundMotos[acId] = roundMotos[acId] || {})[rname] = roundMotos[acId][rname] || []).push(mg.name);
     for (const r of Object.values(mg.riders || {})) {
       const serial = String(r.serial_number || '').trim();
       ((present[acId] = present[acId] || {})[rname] = present[acId][rname] || new Set()).add(serial);
@@ -334,7 +337,9 @@ function parseFeed(feed, riders, opts = {}) {
       const k = roundKey[rn];
       if (!k) continue;
       const g = (h.groups[rn] || [])[0];
-      rc[k] = g ? { num: g.mg.name, gate: Number(g.r.lane_1) || 0 } : { num: '', gate: 0 };
+      // Not placed in that round yet: still show the class's posted moto number(s).
+      const all = [...new Set(roundMotos[h.acId]?.[rn] || [])].sort(numSort);
+      rc[k] = g ? { num: g.mg.name, gate: Number(g.r.lane_1) || 0 } : { num: all.join('/'), gate: 0 };
     }
     e.races[type] = rc;
 
