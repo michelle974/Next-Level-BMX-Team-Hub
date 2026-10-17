@@ -342,15 +342,18 @@ function parseFeed(feed, riders, opts = {}) {
     const id = h.rider.id;
     const nextMoto = nextOf('Moto');
     const mres = {};
+    // Small classes (8 or fewer) can have the main posted before anyone races,
+    // so being in the next round only means a transfer once motos have results.
+    const roundRun = n => motos.some(x => Object.values(x.mg.riders || {}).some(o => parseInt(o[`finish_${n}`], 10) > 0));
     if (tp) {
       mres.p1 = fin(1); mres.p2 = fin(2); mres.p3 = fin(3);
-      if (posted(nextMoto)) mres.out = inRound(nextMoto) ? 'T' : 'OUT';
+      if (posted(nextMoto) && (mres.p1 || mres.p2 || mres.p3)) mres.out = inRound(nextMoto) ? 'T' : 'OUT';
     } else if (motos.length) {
-      const rd2Run = motos.some(x => Object.values(x.mg.riders || {}).some(o => parseInt(o.finish_2, 10) > 0));
+      const rd2Run = roundRun(2);
       if (fin(1)) mres.out = 'T1';
       else if (fin(2)) mres.out = 'T2';
-      else if (inRound(nextMoto)) mres.out = 'T';
-      else if (posted(nextMoto) || rd2Run) mres.out = 'OUT';
+      else if (inRound(nextMoto) && roundRun(1)) mres.out = 'T';
+      else if ((posted(nextMoto) && roundRun(1)) || rd2Run) mres.out = 'OUT';
     }
     if (mres.out || mres.p1) results[`${id}|${type}`] = mres;
 

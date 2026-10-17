@@ -3156,6 +3156,12 @@ function rdEff(key) {
     const flag = rdHas(F) && !rdSame(L.v, F) && (d.acks || {})[key] !== JSON.stringify(rdClean(F)) ? F : null;
     return { r: L.v, flag, by: L.by };
   }
+  // A parent cleared this result on purpose: it stays cleared. If the live site
+  // still shows a result, flag it instead of quietly bringing it back.
+  if (L) {
+    const flag = rdHas(F) && (d.acks || {})[key] !== JSON.stringify(rdClean(F)) ? F : null;
+    return { r: {}, flag, by: L.by };
+  }
   return { r: F || {}, flag: null, by: rdHas(F) ? 'live site' : '' };
 }
 
@@ -3678,6 +3684,8 @@ function rdSamples(id, type) {
   const key = `${S.rd.day}|${id}|${type}`;
   S.rd.simCache = S.rd.simCache || {};
   const p = rdPredict(id, type);
+  // Picked for a class they have no motos in: scores 0, nothing to simulate.
+  if (p.none) return new Float32Array(RD_SIMS);
   const sig = `${p.pMain.toFixed(4)}|${p.count}|${JSON.stringify(p.places)}|${p.lvl}`;
   const hit = S.rd.simCache[key];
   if (hit && hit.sig === sig) return hit.out;
