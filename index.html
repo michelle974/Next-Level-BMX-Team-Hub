@@ -3201,11 +3201,13 @@ function rdQualified(id, cells, k) {
   if (!f || !cells[f]) return true;
   const r = rdEff(`${id}|${f}`).r;
   // Plain total points: everyone races the main (round 3) once round 2 is logged.
-  if (rdTpAll(cells[f]) && r.p1 && r.p2 && r.out !== 'OUT') return true;
+  if (rdTpAll(cells[f])) return !!(r.p1 && r.p2);
   return rdIsT(r.out) && rdQualified(id, cells, f);
 }
 // "Total Points" with no "To ...": the whole class goes to the main.
 const rdTpAll = c => !!(c && c.tp && !/\bto\b/i.test(c.rule || ''));
+// Plain total points has no transfer: drop any transfer/out mark from the moto.
+const rdTpView = (r, c) => (rdTpAll(c) && r.out ? { ...r, out: '' } : r);
 
 function rdDescribe(kind, r) {
   if (!rdHas(r)) return 'not raced';
@@ -3311,6 +3313,9 @@ async function rdSync() {
 // Log a result. Saved as its own entry so two parents never overwrite each other.
 async function rdSet(key, field, val) {
   const cur = { ...rdEff(key).r };
+  const [rid, rk] = key.split('|');
+  const ent = S.rd.data.entries?.[rid];
+  if (ent && rdKind(rk) === 'moto' && rdTpAll(ent.races[rk])) delete cur.out;
   cur[field] = cur[field] === val ? (field === 'out' ? '' : 0) : val;
   const v = rdClean(cur);
   const d = S.rd.data;
@@ -3369,7 +3374,8 @@ function rdLogHtml() {
       if (ph !== phase || !rdQualified(e.id, cells, k)) continue;
       const key = `${e.id}|${k}`;
       const c = cells[k], base = cells[rdBase(k)];
-      const { r, flag, by } = rdEff(key);
+      const ef = rdEff(key);
+      const r = kind === 'moto' ? rdTpView(ef.r, c) : ef.r, flag = ef.flag, by = ef.by;
       const tp = kind === 'moto' && base.tp;
       const nums = String(c.num || '').match(/\d+/g);
       items.push({ key, e, k, kind, c, base, r, flag, by, tp, lo: nums ? Math.min(...nums.map(Number)) : 9999,
@@ -3463,7 +3469,8 @@ function rdBoardHtml() {
     let hasFlag = false;
     const cell = (k, label) => {
       if (!k) return '<div class="rd-cell empty"><small>&nbsp;</small><b>–</b><small>&nbsp;</small></div>';
-      const { r, flag } = rdEff(`${e.id}|${k}`);
+      const ef = rdEff(`${e.id}|${k}`);
+      const flag = ef.flag, r = rdKind(k) === 'moto' ? rdTpView(ef.r, cells[k]) : ef.r;
       const kind = rdKind(k);
       const tp = kind === 'moto' && cells[k].tp;
       total++;
