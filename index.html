@@ -550,6 +550,7 @@
   .rd-item.open { border-color: #ff5500; }
   .rd-item.logged { border-color: #1f4d10; }
   .rd-item.nl { border-color: #5a2a10; }
+  .rd-item.out { border-color: #5a5a5a; }
   .rd-item.r2 { border-color: #ff5500; }
   .rd-item.flag { border-color: #ff3b3b; }
   .rd-row { width: 100%; min-height: 54px; display: flex; align-items: center; gap: 10px; padding: 6px 12px;
@@ -3379,7 +3380,8 @@ function rdLogHtml() {
       const tp = kind === 'moto' && base.tp;
       const nums = String(c.num || '').match(/\d+/g);
       items.push({ key, e, k, kind, c, base, r, flag, by, tp, lo: nums ? Math.min(...nums.map(Number)) : 9999,
-                   logged: kind === 'main' ? !!r.p1 : !!r.out });
+                   // Total points counts as logged once a round place is in.
+                   logged: kind === 'main' ? !!r.p1 : !!(r.out || (tp && (r.p1 || r.p2))) });
     }
   }
   items.sort((a, b) => a.lo - b.lo || a.e.name.localeCompare(b.e.name));
@@ -3401,7 +3403,9 @@ function rdLogHtml() {
     else if (r.out === 'OUT') { chip = 'OUT'; cc = 'out'; }
     else if (it.kind === 'main' && r.p1) { chip = RD_ORD[r.p1].toUpperCase(); cc = r.p1 <= 3 ? 'go' : 'or'; }
     else if (it.tp && (r.p1 || r.p2 || r.p3)) { chip = rdTpNext(r, it.c) || `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}`; cc = 'or'; }
-    let state = it.logged ? (r.out === 'R2' ? 'r2' : 'logged') : (it.tp && rdTpNext(r, it.c) ? 'r2' : '');
+    let state = !it.logged ? ''
+      : r.out === 'OUT' ? 'out'
+      : r.out === 'R2' || (it.tp && rdTpNext(r, it.c)) ? 'r2' : 'logged';
     if (!it.logged && !it.flag && it.lo < lastLogged) { chip = 'NOT LOGGED'; cc = 'nl'; state = 'nl'; }
     if (it.flag) { chip = 'CHECK'; cc = 'chk'; state = 'flag'; }
     const isOpen = S.rd.open === it.key;
