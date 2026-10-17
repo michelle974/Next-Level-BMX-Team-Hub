@@ -3500,7 +3500,7 @@ function rdBoardHtml() {
         const gates = (m.gates || []).filter(Boolean);
         const lines = [
           `Moto ${esc(m.num)} · ${esc(m.code)} · ${esc(m.rule || '')} · ${m.count} riders`,
-          `${gates.length ? `Gates ${gates.join(' / ')} · ` : ''}${esc(rdDescribe('moto', rdEff(`${e.id}|${t}`).r))}`,
+          `${gates.length ? `Gates ${gates.join(' / ')} · ` : ''}${esc(rdDescribe('moto', rdTpView(rdEff(`${e.id}|${t}`).r, m)))}`,
         ];
         for (const [k, lab] of [[t + 'Q', 'Qtr'], [t + 'S', 'Semi'], [t + 'M', 'Main']]) {
           // Every later round shows its moto number once it posts, transferred or not.
@@ -3551,7 +3551,7 @@ function rdScore(id, type) {
     const fp = RD_PTS[lvl][place];
     return { state: 'scored', pts: m.count + fp, fp, place, count: m.count };
   }
-  if (['', 'Q', 'S'].some(s => cells[type + s] && r(type + s).out === 'OUT')) return { state: 'dnq', pts: 0 };
+  if (['', 'Q', 'S'].some(s => cells[type + s] && !(s === '' && rdTpAll(m)) && r(type + s).out === 'OUT')) return { state: 'dnq', pts: 0 };
   return { state: 'pending' };
 }
 

@@ -353,8 +353,8 @@ function parseFeed(feed, riders, opts = {}) {
     if (tp) {
       mres.p1 = fin(1); mres.p2 = fin(2); mres.p3 = fin(3);
       // Plain "Total Points": the whole class races the main, so there is no transfer.
-      const all = !/\bto\b/i.test(rule);
-      if (!all && posted(nextMoto) && (mres.p1 || mres.p2 || mres.p3)) mres.out = inRound(nextMoto) ? 'T' : 'OUT';
+      const tpAll = !/\bto\b/i.test(rule);
+      if (!tpAll && posted(nextMoto) && (mres.p1 || mres.p2 || mres.p3)) mres.out = inRound(nextMoto) ? 'T' : 'OUT';
     } else if (motos.length) {
       const rd2Run = roundRun(2);
       if (fin(1)) mres.out = 'T1';
