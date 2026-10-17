@@ -3317,6 +3317,14 @@ async function rdSet(key, field, val) {
   catch (e) { if (prev) d.logs[key] = prev; else delete d.logs[key]; S.rd.err = e.message; rdRender(); }
 }
 
+// Total points: which round is up next once a place is logged.
+function rdTpNext(r) {
+  if (r.out) return '';
+  if (r.p1 && !r.p2) return '2ND ROUND';
+  if (r.p2 && !r.p3) return '3RD ROUND';
+  return '';
+}
+
 // 1st Round Transfer Yes/No, then 2nd Round Transfer Yes/No for a No.
 // Tapping the lit answer again undoes it.
 function rdRound(key, round, yes) {
@@ -3380,8 +3388,8 @@ function rdLogHtml() {
     else if (r.out === 'R2') { chip = '2ND ROUND'; cc = 'or'; }
     else if (r.out === 'OUT') { chip = 'OUT'; cc = 'out'; }
     else if (it.kind === 'main' && r.p1) { chip = RD_ORD[r.p1].toUpperCase(); cc = r.p1 <= 3 ? 'go' : 'or'; }
-    else if (it.tp && (r.p1 || r.p2 || r.p3)) { chip = `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}`; cc = 'or'; }
-    let state = it.logged ? (r.out === 'R2' ? 'r2' : 'logged') : '';
+    else if (it.tp && (r.p1 || r.p2 || r.p3)) { chip = rdTpNext(r) || `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}`; cc = 'or'; }
+    let state = it.logged ? (r.out === 'R2' ? 'r2' : 'logged') : (it.tp && rdTpNext(r) ? 'r2' : '');
     if (!it.logged && !it.flag && it.lo < lastLogged) { chip = 'NOT LOGGED'; cc = 'nl'; state = 'nl'; }
     if (it.flag) { chip = 'CHECK'; cc = 'chk'; state = 'flag'; }
     const isOpen = S.rd.open === it.key;
@@ -3456,7 +3464,7 @@ function rdBoardHtml() {
       else if (r.out === 'R2') { cls = 'or'; status = '2ND ROUND'; }
       else if (r.out === 'OUT') { logged++; cls = 'out'; status = 'OUT'; }
       else if (kind === 'main' && r.p1) { logged++; cls = r.p1 <= 3 ? 'pod' : 'or'; status = RD_ORD[r.p1].toUpperCase(); }
-      else if (tp && (r.p1 || r.p2 || r.p3)) { cls = 'or'; status = `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)} · WAITING`; }
+      else if (tp && (r.p1 || r.p2 || r.p3)) { cls = 'or'; status = `${rdTpNext(r) || 'TP'} · ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)} PTS`; }
       if (flag) { hasFlag = true; cls += ' chk'; status = 'CHECK'; }
       return `<div class="rd-cell ${cls}"><small>${esc(label)}</small><b>${esc(String(cells[k].num || '—').replace(/ · /g, ' '))}</b><small>${status}</small></div>`;
     };
