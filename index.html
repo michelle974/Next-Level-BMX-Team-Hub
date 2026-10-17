@@ -3199,8 +3199,13 @@ function rdFeeder(cells, k) {
 function rdQualified(id, cells, k) {
   const f = rdFeeder(cells, k);
   if (!f || !cells[f]) return true;
-  return rdIsT(rdEff(`${id}|${f}`).r.out) && rdQualified(id, cells, f);
+  const r = rdEff(`${id}|${f}`).r;
+  // Plain total points: everyone races the main (round 3) once round 2 is logged.
+  if (rdTpAll(cells[f]) && r.p1 && r.p2 && r.out !== 'OUT') return true;
+  return rdIsT(r.out) && rdQualified(id, cells, f);
 }
+// "Total Points" with no "To ...": the whole class goes to the main.
+const rdTpAll = c => !!(c && c.tp && !/\bto\b/i.test(c.rule || ''));
 
 function rdDescribe(kind, r) {
   if (!rdHas(r)) return 'not raced';
@@ -3318,10 +3323,11 @@ async function rdSet(key, field, val) {
 }
 
 // Total points: which round is up next once a place is logged.
-function rdTpNext(r) {
+// Round 3 of a total points class is the main.
+function rdTpNext(r, c) {
   if (r.out) return '';
   if (r.p1 && !r.p2) return '2ND ROUND';
-  if (r.p2 && !r.p3) return '3RD ROUND';
+  if (r.p2 && rdTpAll(c)) return 'MAIN';
   return '';
 }
 
@@ -3388,8 +3394,8 @@ function rdLogHtml() {
     else if (r.out === 'R2') { chip = '2ND ROUND'; cc = 'or'; }
     else if (r.out === 'OUT') { chip = 'OUT'; cc = 'out'; }
     else if (it.kind === 'main' && r.p1) { chip = RD_ORD[r.p1].toUpperCase(); cc = r.p1 <= 3 ? 'go' : 'or'; }
-    else if (it.tp && (r.p1 || r.p2 || r.p3)) { chip = rdTpNext(r) || `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}`; cc = 'or'; }
-    let state = it.logged ? (r.out === 'R2' ? 'r2' : 'logged') : (it.tp && rdTpNext(r) ? 'r2' : '');
+    else if (it.tp && (r.p1 || r.p2 || r.p3)) { chip = rdTpNext(r, it.c) || `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}`; cc = 'or'; }
+    let state = it.logged ? (r.out === 'R2' ? 'r2' : 'logged') : (it.tp && rdTpNext(r, it.c) ? 'r2' : '');
     if (!it.logged && !it.flag && it.lo < lastLogged) { chip = 'NOT LOGGED'; cc = 'nl'; state = 'nl'; }
     if (it.flag) { chip = 'CHECK'; cc = 'chk'; state = 'flag'; }
     const isOpen = S.rd.open === it.key;
@@ -3410,8 +3416,9 @@ function rdLogHtml() {
       let outs = [];
       if (it.kind === 'main') html += places('FINISH', 'p1');
       else if (it.tp) {
-        html += places('ROUND 1 PLACE', 'p1') + places('ROUND 2 PLACE', 'p2') + places('ROUND 3 PLACE', 'p3');
-        outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
+        html += places('ROUND 1 PLACE', 'p1') + places('ROUND 2 PLACE', 'p2');
+        // The main is round 3: log its finish on the main card.
+        if (!rdTpAll(it.c)) outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
       } else if (it.kind === 'moto') {
         const o = r.out || '';
         const b = (round, yes, on, cls) => `<button class="${on ? 'on ' + cls : ''}" onclick="rdRound('${it.key}',${round},${yes})">${yes ? 'YES' : 'NO'}</button>`;
@@ -3429,7 +3436,8 @@ function rdLogHtml() {
           <button onclick="rdKeep('${it.key}')">KEEP LOGGED</button></div></div>`;
       }
       if (it.tp && (r.p1 || r.p2 || r.p3)) {
-        html += `<div class="rd-tp">Total points so far: ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}. Mark transfer once points post.</div>`;
+        html += `<div class="rd-tp">Total points so far: ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}. ${rdTpAll(it.c)
+          ? 'Round 3 is the main. Log the main finish on the MAINS tab.' : 'Mark transfer once points post.'}</div>`;
       }
       if (outs.length) {
         html += `<div class="rd-outs">${outs.map(([val, label]) =>
@@ -3464,7 +3472,7 @@ function rdBoardHtml() {
       else if (r.out === 'R2') { cls = 'or'; status = '2ND ROUND'; }
       else if (r.out === 'OUT') { logged++; cls = 'out'; status = 'OUT'; }
       else if (kind === 'main' && r.p1) { logged++; cls = r.p1 <= 3 ? 'pod' : 'or'; status = RD_ORD[r.p1].toUpperCase(); }
-      else if (tp && (r.p1 || r.p2 || r.p3)) { cls = 'or'; status = `${rdTpNext(r) || 'TP'} · ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)} PTS`; }
+      else if (tp && (r.p1 || r.p2 || r.p3)) { cls = 'or'; status = `${rdTpNext(r, cells[k]) || 'TP'} · ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)} PTS`; }
       if (flag) { hasFlag = true; cls += ' chk'; status = 'CHECK'; }
       return `<div class="rd-cell ${cls}"><small>${esc(label)}</small><b>${esc(String(cells[k].num || '—').replace(/ · /g, ' '))}</b><small>${status}</small></div>`;
     };
