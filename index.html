@@ -651,6 +651,12 @@
   .rd-suggest { height: 44px; border-radius: 10px; border: 2px solid #38f100; background: #0a0a0a; color: #38f100;
     font-size: 15px; font-weight: 800; letter-spacing: 1px; }
   .rd-suggest.clear { border-color: #5a5a5a; color: #bdbdbd; }
+  .rd-finbar { margin-bottom: 12px; }
+  .rd-finbar .rd-outs button { height: 46px; font-size: 15px; }
+  .rd-finbar .rd-outs button.fin { background: #38f100; border-color: #38f100; color: #0a0a0a; }
+  .rd-finbar .rd-outs button:disabled { opacity: .45; }
+  .rd-finnote { margin-top: 6px; font-size: 13px; font-weight: 700; color: #8f8f8f; }
+  .rd-finnote b { color: #38f100; }
   .rd-tag { font-size: 11px; font-weight: 800; letter-spacing: 1px; }
   .rd-edit { border-radius: 10px; border: 2px solid #ff5500; background: #1f1208; padding: 10px 12px;
     display: flex; flex-direction: column; gap: 8px; }
@@ -3123,6 +3129,18 @@ const RD_PTS = {
   X: [0, 40, 35, 30, 25, 20, 15, 10, 5],
   GX: [0, 45, 40, 35, 30, 25, 20, 15, 10],
 };
+// Pro-Am (sunshinestatebmx.com): SCR at regular state races, SCF at State Champs.
+// Rider count is added the same as Open; a Pro-Am DNQ still scores.
+const RD_PA = {
+  SCR: { pts: [0, 40, 38, 36, 34, 32, 30, 28, 26], dnq: 20 },
+  SCF: { pts: [0, 60, 57, 54, 51, 48, 45, 42, 39], dnq: 30 },
+};
+const rdPaSet = () => {
+  const d = S.rd.data || {};
+  return /\bSCF\b|state\s*champ/i.test(`${d.eventName || ''} ${d.day?.race || ''}`) ? RD_PA.SCF : RD_PA.SCR;
+};
+const rdTable = lvl => (lvl === 'PA' ? rdPaSet().pts : RD_PTS[lvl]);
+const rdDnqPts = lvl => (lvl === 'PA' ? rdPaSet().dnq : 0);
 const rdKind = k => /M$/.test(k) ? 'main' : /S$/.test(k) ? 'semi' : /Q$/.test(k) ? 'qtr' : 'moto';
 const rdBase = k => k.replace(/[QSM]$/, '');
 const rdIsT = o => o === 'T' || o === 'T1' || o === 'T2';
@@ -3531,6 +3549,7 @@ function rdBoardHtml() {
 
 /* ---- ADMIN: team sheets ---- */
 function rdLevel(type, code) {
+  if (/pro-?am/i.test(String(code || ''))) return 'PA';
   if (type !== 'class') return 'X';
   const c = String(code || '').toLowerCase();
   if (/gx$/.test(c)) return 'GX';
@@ -3543,6 +3562,8 @@ function rdLevel(type, code) {
 function rdScore(id, type) {
   const d = S.rd.data;
   const e = d.entries[id];
+  // Finalized: exactly what was saved, no matter what changes later.
+  if (d.final?.scores) return d.final.scores[`${id}|${type}`] || { state: 'none', pts: 0 };
   if (!d.loaded) return { state: 'pending' };
   if (!e || !e.races[type]) return { state: 'none', pts: 0 };
   const cells = rdCells(e);
@@ -3552,10 +3573,13 @@ function rdScore(id, type) {
   if (place) {
     const lvl = rdLevel(type, m.code);
     if (!lvl) return { state: 'nolevel' };
-    const fp = RD_PTS[lvl][place];
-    return { state: 'scored', pts: m.count + fp, fp, place, count: m.count };
+    const fp = rdTable(lvl)[place];
+    return { state: 'scored', pts: m.count + fp, fp, place, count: m.count, code: m.code };
   }
-  if (['', 'Q', 'S'].some(s => cells[type + s] && !(s === '' && rdTpAll(m)) && r(type + s).out === 'OUT')) return { state: 'dnq', pts: 0 };
+  if (['', 'Q', 'S'].some(s => cells[type + s] && !(s === '' && rdTpAll(m)) && r(type + s).out === 'OUT')) {
+    const dq = rdDnqPts(rdLevel(type, m.code));
+    return { state: 'dnq', pts: dq, fp: dq, place: 0, count: m.count, code: m.code };
+  }
   return { state: 'pending' };
 }
 
@@ -3604,6 +3628,46 @@ async function rdPick(id, type, n) {
   d.picks = picks; rdRender();
   try { await rdApi('picks', { picks }); }
   catch (e) { d.picks = prev; S.rd.err = e.message; rdRender(); }
+}
+
+// Freeze today's scores exactly as the Team Sheets page shows them.
+async function rdFinalize() {
+  const d = S.rd.data;
+  if (!d.loaded) { S.rd.err = 'Load motos before finalizing scores.'; return rdRender(); }
+  const rows = rdAdminRows();
+  const pending = rows.filter(r => rdSheetOf(r.key) && r.s.state === 'pending').length;
+  if (!confirm(`${pending ? `${pending} picked ${pending === 1 ? 'rider has' : 'riders have'} no main result yet and will score 0. ` : ''}Finalize ${rdDayLabel(d.day)} scores? They stop changing and count toward predictions.`)) return;
+  const scores = {};
+  for (const r of rows) {
+    const code = d.entries[r.id]?.races?.[r.type]?.code || '';
+    scores[r.key] = { ...r.s, pts: r.s.pts || 0, code: r.s.code || code };
+  }
+  const totals = {};
+  for (const n of [1, 2]) {
+    totals['s' + n] = rows.filter(r => rdSheetOf(r.key) === n).map(r => r.s.pts || 0)
+      .sort((a, b) => b - a).slice(0, 4).reduce((a, b) => a + b, 0);
+  }
+  S.rd.busy = true; rdRender();
+  try { d.final = (await rdApi('finalize', { final: { scores, totals } })).final; }
+  catch (e) { S.rd.err = e.message; }
+  S.rd.busy = false; rdRender();
+}
+async function rdUnfinalize() {
+  const d = S.rd.data;
+  if (!confirm('Unfinalize? Scores go back to live and this day stops counting toward predictions until you finalize again.')) return;
+  const prev = d.final;
+  d.final = null; rdRender();
+  try { await rdApi('finalize', { final: null }); }
+  catch (e) { d.final = prev; S.rd.err = e.message; rdRender(); }
+}
+// Re-read every finalized day and rebuild the predictions.
+async function rdUpdatePredictions() {
+  S.rd.simCache = {};
+  S.rd.busy = true; rdRender();
+  await rdLoad();
+  S.rd.busy = false;
+  S.rd.predAt = new Date().toISOString();
+  rdRender();
 }
 
 async function rdLock() {
@@ -3700,7 +3764,11 @@ function rdPredict(id, type) {
   const mv = rdMoveUp(id, type, rows);
   const code = rdCurrentCode(id, type);
   const rr = (d.roster || []).find(r => r.id === id);
-  let lvl = rdLevel(type, code);
+  // Before motos post, Open has no class code yet: a rider whose latest Open
+  // race was Pro-Am is predicted on the Pro-Am table.
+  const raw = (d.history || {})[id]?.[type] || [];
+  const lastCode = raw.length ? raw[raw.length - 1][2] : '';
+  let lvl = rdLevel(type, code || (/pro-?am/i.test(lastCode) ? lastCode : ''));
   if (!lvl) {
     const p = (rr?.proficiency || '').toLowerCase();
     lvl = /girl/.test(p) ? 'GX' : /nov/.test(p) ? 'N' : /int/.test(p) ? 'I' : 'X';
@@ -3710,21 +3778,22 @@ function rdPredict(id, type) {
   rows.forEach(([count, place], i) => {
     const k = Math.pow(0.85, rows.length - 1 - i);
     w += k; wCount += k * count;
-    if (place) { wMain += k; wPts += k * RD_PTS[lvl][place]; wPlace += k * place; dist.push([place, k]); }
+    if (place) { wMain += k; wPts += k * rdTable(lvl)[place]; wPlace += k * place; dist.push([place, k]); }
   });
   // Few races = lean toward an even chance; a move-up halves what history is worth.
   const trust = mv ? 0.5 : 1;
   let pMain = (wMain * trust + 1) / (w * trust + 2);
   let place = wMain ? wPlace / wMain : 5;
   if (mv) { pMain *= 0.85; place = Math.min(8, place + 1); }
-  const fp = !wMain ? RD_PTS[lvl][5] : mv ? RD_PTS[lvl][Math.round(place)] : wPts / wMain;
+  const fp = !wMain ? rdTable(lvl)[5] : mv ? rdTable(lvl)[Math.round(place)] : wPts / wMain;
+  const dnq = rdDnqPts(lvl);
   const real = d.entries?.[id]?.races?.[type]?.count;
   const count = real || (w ? Math.round(wCount / w) : 10);
   // Where they finish when they make the main (used to simulate a sheet's best 4).
   const places = dist.length
     ? dist.map(([pl, k]) => [Math.min(8, pl + (mv ? 1 : 0)), k])
     : [[3, 1], [4, 1], [5, 1], [6, 1], [7, 1]];
-  return { exp: Math.round(pMain * (count + fp)), pMain, place, n: rows.length, count, realCount: !!real, mv, lvl, places };
+  return { exp: Math.round(pMain * (count + fp) + (1 - pMain) * dnq), pMain, place, n: rows.length, count, realCount: !!real, mv, lvl, places, dnq };
 }
 
 /* Only the best 4 of a sheet's 6 count, so a sheet is worth more than its 4
@@ -3743,7 +3812,7 @@ function rdSamples(id, type) {
   const p = rdPredict(id, type);
   // Picked for a class they have no motos in: scores 0, nothing to simulate.
   if (p.none) return new Float32Array(RD_SIMS);
-  const sig = `${p.pMain.toFixed(4)}|${p.count}|${JSON.stringify(p.places)}|${p.lvl}`;
+  const sig = `${p.pMain.toFixed(4)}|${p.count}|${JSON.stringify(p.places)}|${p.lvl}|${p.dnq}|${rdTable(p.lvl).join()}`;
   const hit = S.rd.simCache[key];
   if (hit && hit.sig === sig) return hit.out;
   const out = new Float32Array(RD_SIMS);
@@ -3751,10 +3820,10 @@ function rdSamples(id, type) {
     const rnd = rdSeed(key);
     const tot = p.places.reduce((a, [, k]) => a + k, 0);
     for (let i = 0; i < RD_SIMS; i++) {
-      if (rnd() >= p.pMain) continue;
+      if (rnd() >= p.pMain) { out[i] = p.dnq || 0; continue; }
       let x = rnd() * tot, pl = p.places[p.places.length - 1][0];
       for (const [place, k] of p.places) { if ((x -= k) <= 0) { pl = place; break; } }
-      out[i] = p.count + RD_PTS[p.lvl][pl];
+      out[i] = p.count + rdTable(p.lvl)[pl];
     }
   }
   S.rd.simCache[key] = { sig, out };
@@ -3848,7 +3917,21 @@ function rdAdminHtml() {
     return { n, on, total: top4.reduce((a, b) => a + b, 0), cutoff: top4.length === 4 ? top4[3] : 0, pred };
   });
   const dayName = RD_DAYNAME[d.day?.day] || 'Today';
-  let html = `<div class="rd-sheets">
+  const fin = d.final;
+  const incl = (d.historyDays || []).map(x => rdDayLabel({ race: x.key.split('|')[0], day: x.key.split('|')[1] }));
+  let html = `<div class="rd-finbar">
+    <div class="rd-outs">
+      ${fin ? `<button onclick="rdUnfinalize()" ${S.rd.busy ? 'disabled' : ''}>UNFINALIZE</button>`
+        : `<button class="fin" onclick="rdFinalize()" ${S.rd.busy || !d.loaded ? 'disabled' : ''}>FINALIZE SCORES</button>`}
+      <button onclick="rdUpdatePredictions()" ${S.rd.busy ? 'disabled' : ''}>UPDATE PREDICTIONS</button>
+    </div>
+    <div class="rd-finnote">${fin
+      ? `<b>FINAL</b> · saved ${esc(rdTime(fin.at))}${fin.by ? ` by ${esc(fin.by)}` : ''}. Scores no longer change.`
+      : d.loaded ? 'Scores are live. Finalize once every main is in.' : 'Scores fill in once motos load and mains are logged.'}</div>
+    <div class="rd-finnote">Predictions use: last season${incl.length ? ' + ' + incl.map(esc).join(', ') : ' (no finalized days yet)'}${
+      S.rd.predAt ? ` · updated ${esc(rdTime(S.rd.predAt))}` : ''}</div>
+  </div>
+  <div class="rd-sheets">
     ${sheet.map(s => `<div class="rd-stat ${s.n === 1 ? 'g' : ''}" style="${s.n === 2 ? 'border-color:#ff5500;background:#1f1208' : ''}">
       <small style="${s.n === 2 ? 'color:#ff5500' : ''}">SHEET ${s.n} · ${s.on.length}/6</small><b>${s.total}</b>
       <span class="rd-pred">predicted best 4: ${s.pred}</span></div>`).join('')}
@@ -3900,7 +3983,8 @@ function rdAdminHtml() {
     const predLine = pr.none ? '' : `Predicted ${pr.exp} · main ${Math.round(pr.pMain * 100)}% · avg ${RD_ORD[Math.round(pr.place)]}${pr.n ? '' : ' · no history'}`;
     let pts = pr.none ? '–' : `<i>~${pr.exp}</i>`, math = predLine || 'Not raced yet', col = '#8f8f8f';
     if (r.s.state === 'scored') { pts = r.s.pts; col = '#fff'; math = `${r.s.count} riders + ${RD_ORD[r.s.place]} (${r.s.fp}) · predicted ${pr.exp}`; }
-    else if (r.s.state === 'dnq') { pts = '0'; col = '#5a5a5a'; math = `DNQ · no points · predicted ${pr.exp}`; }
+    else if (r.s.state === 'dnq') { pts = String(r.s.pts || 0); col = r.s.pts ? '#bdbdbd' : '#5a5a5a';
+      math = `DNQ · ${r.s.pts ? `${r.s.pts} pts` : 'no points'} · predicted ${pr.exp}`; }
     else if (r.s.state === 'none') { pts = '0'; col = '#5a5a5a'; math = 'Did not race this class'; }
     else if (r.s.state === 'nolevel') { pts = '?'; col = '#ff5500'; math = 'Class level unknown'; }
     const bd = sh ? (counts || !d.loaded ? (sh === 1 ? '#38f100' : '#ff5500') : (sh === 1 ? '#1f4d10' : '#5a2a10')) : '#161616';

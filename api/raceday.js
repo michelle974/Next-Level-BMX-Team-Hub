@@ -51,24 +51,24 @@ const DEFAULT_CLASSES = {
    rider gid -> race type -> [[start-of-day rider count, main finish (0 = no main), class code], ...] */
 const HISTORY_2026 = {"1217688662198033":{"class":[[18,0,"8i"],[15,0,"8i"],[16,0,"8i"],[15,0,"8i"],[14,0,"8i"],[11,7,"8i"],[13,0,"8i"]]},"1218422751273322":{"class":[[13,0,"9x"],[12,0,"9x"],[13,0,"9x"],[10,7,"9x"],[9,8,"9x"],[11,0,"9x"],[12,0,"9x"]],"open":[[9,0,"9-10 o"],[9,0,"9-10 o"]]},"1218868051910927":{"open":[[10,2,"9-10 mix"],[10,2,"9-10 mix"],[17,6,"9-10 mix"],[14,5,"9-10 mix"],[13,5,"9-10 mix"],[20,7,"9-10 mix"],[9,5,"9-10 mix"],[11,3,"9-10 mix"]],"class":[[20,4,"10i"],[21,6,"10i"],[20,7,"10i"],[18,6,"9i"],[17,6,"9i"],[18,4,"9i"],[17,2,"9i"]]},"1218536822086540":{"open":[[10,3,"9-10 mix"],[14,4,"9-10 mix"],[13,3,"9-10 mix"],[20,4,"9-10 mix"],[9,1,"9-10 mix"],[11,2,"9-10 mix"]],"class":[[20,3,"10i"],[21,2,"10i"],[20,8,"10i"],[18,3,"10i"],[19,3,"10i"],[12,1,"10n"],[17,1,"10n"]],"cruiser":[[9,5,"10c"]]},"1218499152780145":{"class":[[13,5,"9x"],[12,4,"9x"],[13,0,"9x"]]},"1217688811972923":{"cruiser":[[7,4,"11c"],[7,6,"11c"],[9,5,"11c"],[7,4,"11c"],[6,5,"11c"],[6,3,"11c"],[8,4,"11c"],[8,5,"11c"]],"class":[[16,3,"11x"],[15,5,"11x"],[9,7,"11x"],[13,8,"11x"],[13,0,"11x"],[17,0,"11x"],[15,0,"11x"]]},"1217691735658902":{"cruiser":[[6,5,"14c"],[6,6,"14c"],[7,5,"14c"],[6,6,"14c"],[5,4,"14c"],[5,4,"14c"],[5,4,"14c"]],"class":[[16,0,"14x"],[16,0,"14x"],[15,0,"14x"],[18,0,"14x"],[16,0,"14x"],[19,0,"14x"],[21,0,"14x"]]},"1218499552279429":{"cruiser":[[6,1,"14c"],[6,1,"14c"],[7,2,"14c"]],"class":[[16,2,"14x"],[16,0,"14x"],[15,0,"14x"]]},"1218474207475104":{"open":[[10,0,"pro-am"],[8,8,"pro-am"],[11,2,"13-14 mix"],[10,2,"13-14 mix"],[19,2,"13-14 mix"],[12,4,"13-14 mix"],[12,4,"13-14 mix"]],"class":[[9,6,"13gx"],[7,6,"13gx"],[4,2,"14gx"],[3,2,"14gx"],[15,1,"13gx"],[15,1,"13gx"],[15,5,"13gx"],[16,4,"13gx"]]},"1218474699070852":{"cruiser":[[6,5,"16c"],[6,3,"16c"],[4,2,"16c"],[4,3,"16c"],[4,2,"16c"],[4,2,"16c"],[5,3,"15c"],[5,5,"15c"]],"class":[[16,0,"16x"],[15,0,"16x"],[9,0,"16x"],[15,0,"16x"],[15,0,"16x"],[17,8,"15x"],[16,8,"15x"]]},"1218574356224928":{"class":[[10,1,"36-40n"],[7,1,"36-40n"],[9,2,"36-40n"]]},"1218552188030900":{"cruiser":[[9,6,"11c"],[7,3,"11c"],[9,4,"10c"],[8,3,"10c"],[9,7,"10c"],[10,8,"10c"]],"class":[[9,6,"11x"],[18,5,"10x"],[18,5,"10x"],[18,7,"10x"],[21,4,"10x"]],"open":[[9,3,""]]},"1218780741222024":{"open":[[4,2,"11-12 o"]],"class":[[17,4,"12x"]]}};
 
-// This season's finished race days, read from the feed results saved on each day.
+// This season's race days that Michelle finalized on the Team Sheets page.
+// Only finalized scores count, so predictions match what she signed off on.
 function seasonHistory(dayTasks, skipKey) {
-  const out = {};
+  const rows = {}, days = [];
   for (const t of dayTasks) {
     const key = t.fields.DAY_KEY || t.name.replace(/^RACEDAY:\s*/, '');
-    if (key === skipKey || key === TEST_DAY.key || !t.fields.MOTOS_JSON) continue;
-    const entries = jparse(t.fields.MOTOS_JSON, {});
-    const feed = jparse(t.fields.FEED_JSON, {});
-    for (const e of Object.values(entries)) {
-      for (const [type, r] of Object.entries(e.races || {})) {
-        const main = (feed[`${e.id}|${type}M`] || {}).p1 || 0;
-        const out1 = ['', 'Q', 'S'].some(k => (feed[`${e.id}|${type}${k}`] || {}).out === 'OUT');
-        if (!main && !out1) continue; // not finished, nothing to learn
-        ((out[e.id] = out[e.id] || {})[type] = out[e.id][type] || []).push([r.count || 0, main, String(r.code || '').toLowerCase()]);
-      }
+    if (key === skipKey || key === TEST_DAY.key) continue;
+    const fin = jparse(t.fields.FINAL_JSON, null);
+    if (!fin || !fin.scores) continue;
+    days.push({ key, at: fin.at || '' });
+    for (const [k, sc] of Object.entries(fin.scores)) {
+      if (sc.state !== 'scored' && sc.state !== 'dnq') continue; // did not race or not finished
+      const [id, type] = k.split('|');
+      ((rows[id] = rows[id] || {})[type] = rows[id][type] || []).push([sc.count || 0, sc.place || 0, String(sc.code || '').toLowerCase()]);
     }
   }
-  return out;
+  days.sort((a, b) => allDays().findIndex(d => d.key === a.key) - allDays().findIndex(d => d.key === b.key));
+  return { rows, days };
 }
 
 const TEST_DAY = { key: 'TEST|SAT', race: 'TEST', day: 'SAT', date: '', test: true };
@@ -457,7 +457,9 @@ export default async function handler(req, res) {
           out.locked = (f.LOCKED || '').toLowerCase() === 'true';
           out.dayClasses = jparse(f.CLASSES_JSON, {});
           // Pick predictions: last season plus this season's finished days.
-          const season = seasonHistory(await listSection(await raceDaySection()), dayKey);
+          const { rows: season, days: finalDays } = seasonHistory(await listSection(await raceDaySection()), dayKey);
+          out.historyDays = finalDays;
+          out.final = jparse(f.FINAL_JSON, null);
           const history = JSON.parse(JSON.stringify(HISTORY_2026));
           for (const [id, types] of Object.entries(season)) {
             for (const [type, rows] of Object.entries(types)) {
@@ -544,6 +546,33 @@ export default async function handler(req, res) {
         const picks = { s1: clean(body.picks?.s1), s2: clean(body.picks?.s2) };
         await patchTask(task.gid, { PICKS_JSON: jline(picks) });
         return res.json({ ok: true, picks });
+      }
+
+      // Freeze the day's team scores as shown on the Team Sheets page (or clear them).
+      case 'finalize': {
+        if (!me.admin) throw deny('Admins only.');
+        const task = await findDayTask(dayKey, true);
+        if (!body.final) {
+          await patchTask(task.gid, { FINAL_JSON: '' });
+          return res.json({ ok: true, final: null });
+        }
+        const STATES = ['scored', 'dnq', 'none', 'nolevel', 'pending'];
+        const num = (v, max) => Math.max(0, Math.min(max, parseInt(v, 10) || 0));
+        const scores = {};
+        for (const [k, v] of Object.entries(body.final.scores || {})) {
+          if (!/^[x0-9]+\|(open|cruiser|class)$/.test(k) || !v) continue;
+          scores[k] = {
+            state: STATES.includes(v.state) ? v.state : 'pending',
+            count: num(v.count, 200), place: num(v.place, 8), fp: num(v.fp, 100), pts: num(v.pts, 400),
+            code: String(v.code || '').slice(0, 20),
+          };
+        }
+        const final = {
+          at: new Date().toISOString(), by: (me.name || '').split(' ')[0],
+          scores, totals: { s1: num(body.final.totals?.s1, 2000), s2: num(body.final.totals?.s2, 2000) },
+        };
+        await patchTask(task.gid, { FINAL_JSON: jline(final) });
+        return res.json({ ok: true, final });
       }
 
       case 'lock': {
