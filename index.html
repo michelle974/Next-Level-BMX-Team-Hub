@@ -3452,9 +3452,11 @@ function rdBoardHtml() {
           `${gates.length ? `Gates ${gates.join(' / ')} · ` : ''}${esc(rdDescribe('moto', rdEff(`${e.id}|${t}`).r))}`,
         ];
         for (const [k, lab] of [[t + 'Q', 'Qtr'], [t + 'S', 'Semi'], [t + 'M', 'Main']]) {
-          if (!ok(k)) continue;
+          // Every later round shows its moto number once it posts, transferred or not.
+          if (!cells[k]) continue;
           const c = cells[k];
-          lines.push(`${lab} ${esc(c.num || 'not posted')}${c.gate ? ` · gate ${c.gate}` : ''} · ${esc(rdDescribe(rdKind(k), rdEff(`${e.id}|${k}`).r))}`);
+          const res = ok(k) ? ` · ${esc(rdDescribe(rdKind(k), rdEff(`${e.id}|${k}`).r))}` : '';
+          lines.push(`${lab} ${c.num ? `moto ${esc(c.num)}` : 'not posted yet'}${c.gate ? ` · gate ${c.gate}` : ''}${res}`);
         }
         return `<div class="rd-det"><b>${RD_NICE[t].toUpperCase()}</b>${lines.map(l => `<span>${l}</span>`).join('')}</div>`;
       }).join('');
