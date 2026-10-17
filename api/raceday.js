@@ -359,6 +359,7 @@ function parseFeed(feed, riders, opts = {}) {
       else if (fin(2)) mres.out = 'T2';
       else if (inRound(nextMoto) && roundRun(1)) mres.out = 'T';
       else if ((posted(nextMoto) && roundRun(1)) || rd2Run) mres.out = 'OUT';
+      else if (roundRun(1)) mres.out = 'R2'; // raced round 1 without transferring
     }
     if (mres.out || mres.p1) results[`${id}|${type}`] = mres;
 
@@ -406,7 +407,7 @@ const KEY_RE = /^[x0-9]+\|(open|cruiser|class)[QSM]?$/;
 
 function cleanValue(v = {}) {
   const out = {};
-  if (['T', 'T1', 'T2', 'OUT'].includes(v.out)) out.out = v.out;
+  if (['T', 'T1', 'T2', 'R2', 'OUT'].includes(v.out)) out.out = v.out;
   for (const p of ['p1', 'p2', 'p3']) {
     const n = parseInt(v[p], 10);
     if (n >= 1 && n <= 8) out[p] = n;

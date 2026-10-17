@@ -580,6 +580,8 @@
     letter-spacing: 1px; border: 2px solid #333; background: #0a0a0a; color: #fff; }
   .rd-outs button.on { background: #38f100; border-color: #38f100; color: #0a0a0a; }
   .rd-outs button.on.x { background: #3a3a3a; border-color: #5a5a5a; color: #fff; }
+  .rd-outs button.on.r2 { background: #ff5500; border-color: #ff5500; color: #0a0a0a; }
+  .rd-qlab { display: block; margin: 10px 0 6px; font-size: 13px; font-weight: 800; letter-spacing: .5px; color: #bdbdbd; }
   .rd-tp { font-size: 16px; font-weight: 700; color: #ffb08a; }
   .rd-flag { border-radius: 8px; border: 2px solid #ff3b3b; background: #2a0d0d; padding: 8px 10px;
     display: flex; flex-direction: column; gap: 6px; }
@@ -3132,15 +3134,19 @@ S.rd = { data: null, tab: 'log', phase: 0, open: '', flipped: {}, day: '', busy:
 
 function rdClean(v = {}) {
   const out = {};
-  if (['T', 'T1', 'T2', 'OUT'].includes(v.out)) out.out = v.out;
+  if (['T', 'T1', 'T2', 'R2', 'OUT'].includes(v.out)) out.out = v.out;
   for (const p of ['p1', 'p2', 'p3']) { const n = parseInt(v[p], 10); if (n >= 1 && n <= 8) out[p] = n; }
   return out;
 }
+
+// One side says 2nd Round, the other already has the round 2 answer.
+const rdLater = (a, b) => (a === 'R2' && (b === 'T2' || b === 'OUT')) || (b === 'R2' && (a === 'T2' || a === 'OUT'));
 
 function rdSame(a, b) {
   for (const f of ['out', 'p1', 'p2', 'p3']) {
     if (!a[f] || !b[f]) continue;
     if (f === 'out' && rdIsT(a.out) && rdIsT(b.out) && (a.out === 'T' || b.out === 'T')) continue;
+    if (f === 'out' && rdLater(a.out, b.out)) continue;
     if (a[f] !== b[f]) return false;
   }
   return true;
@@ -3153,6 +3159,8 @@ function rdEff(key) {
   const L = (d.logs || {})[key];
   const F = (d.feed || {})[key];
   if (L && rdHas(L.v)) {
+    // Logged 2nd Round and the live site now has the round 2 answer: show that.
+    if (L.v.out === 'R2' && F && (F.out === 'T2' || F.out === 'OUT')) return { r: F, flag: null, by: 'live site' };
     const flag = rdHas(F) && !rdSame(L.v, F) && (d.acks || {})[key] !== JSON.stringify(rdClean(F)) ? F : null;
     return { r: L.v, flag, by: L.by };
   }
@@ -3196,9 +3204,8 @@ function rdQualified(id, cells, k) {
 function rdDescribe(kind, r) {
   if (!rdHas(r)) return 'not raced';
   if (kind === 'main') return r.p1 ? RD_ORD[r.p1] : 'not raced';
-  if (r.out === 'T1') return 'Rd 1 Transfer';
-  if (r.out === 'T2') return 'Rd 2 Transfer';
-  if (r.out === 'T') return 'Transferred';
+  if (r.out === 'T1' || r.out === 'T2' || r.out === 'T') return 'Transferred';
+  if (r.out === 'R2') return '2nd Round';
   if (r.out === 'OUT') return 'Out';
   const pts = (r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0);
   return pts ? `${pts} pts so far` : 'not raced';
@@ -3309,6 +3316,17 @@ async function rdSet(key, field, val) {
   catch (e) { if (prev) d.logs[key] = prev; else delete d.logs[key]; S.rd.err = e.message; rdRender(); }
 }
 
+// 1st Round Transfer Yes/No, then 2nd Round Transfer Yes/No for a No.
+// Tapping the lit answer again undoes it.
+function rdRound(key, round, yes) {
+  const o = rdEff(key).r.out || '';
+  let v;
+  if (round === 1) v = yes ? (o === 'T1' ? '' : 'T1') : (['R2', 'T2', 'OUT'].includes(o) ? '' : 'R2');
+  else v = yes ? (o === 'T2' ? 'R2' : 'T2') : (o === 'OUT' ? 'R2' : 'OUT');
+  if (v === o) return;
+  return rdSet(key, 'out', v || o);
+}
+
 async function rdUseLive(key) {
   const live = rdClean(S.rd.data.feed[key] || {});
   S.rd.data.logs[key] = { v: live, by: 'live site', at: new Date().toISOString() };
@@ -3357,8 +3375,8 @@ function rdLogHtml() {
   for (const it of items) {
     const { r } = it;
     let chip = 'NOT RACED', cc = '';
-    if (r.out === 'T1' || r.out === 'T2') { chip = `TRANSFER RD ${r.out[1]}`; cc = 'go'; }
-    else if (r.out === 'T') { chip = 'TRANSFER'; cc = 'go'; }
+    if (rdIsT(r.out)) { chip = 'TRANSFERRED'; cc = 'go'; }
+    else if (r.out === 'R2') { chip = '2ND ROUND'; cc = 'or'; }
     else if (r.out === 'OUT') { chip = 'OUT'; cc = 'out'; }
     else if (it.kind === 'main' && r.p1) { chip = RD_ORD[r.p1].toUpperCase(); cc = r.p1 <= 3 ? 'go' : 'or'; }
     else if (it.tp && (r.p1 || r.p2 || r.p3)) { chip = `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}`; cc = 'or'; }
@@ -3385,8 +3403,16 @@ function rdLogHtml() {
       else if (it.tp) {
         html += places('ROUND 1 PLACE', 'p1') + places('ROUND 2 PLACE', 'p2') + places('ROUND 3 PLACE', 'p3');
         outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
-      } else if (it.kind === 'moto') outs = [['T1', 'RD 1 TRANSFER'], ['T2', 'RD 2 TRANSFER'], ['OUT', 'OUT']];
-      else outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
+      } else if (it.kind === 'moto') {
+        const o = r.out || '';
+        const b = (round, yes, on, cls) => `<button class="${on ? 'on ' + cls : ''}" onclick="rdRound('${it.key}',${round},${yes})">${yes ? 'YES' : 'NO'}</button>`;
+        html += `<span class="rd-qlab">1ST ROUND TRANSFER?</span><div class="rd-outs">${
+          b(1, true, o === 'T1', '')}${b(1, false, ['R2', 'T2', 'OUT'].includes(o), 'r2')}</div>`;
+        if (['R2', 'T2', 'OUT'].includes(o)) {
+          html += `<span class="rd-qlab">2ND ROUND TRANSFER?</span><div class="rd-outs">${
+            b(2, true, o === 'T2', '')}${b(2, false, o === 'OUT', 'x')}</div>`;
+        }
+      } else outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
       if (it.flag) {
         html += `<div class="rd-flag"><b>RESULTS DON'T MATCH</b>
           <div>Logged: ${esc(rdDescribe(it.kind, r))} · Live site: ${esc(rdDescribe(it.kind, it.flag))}</div>
@@ -3425,7 +3451,8 @@ function rdBoardHtml() {
       const tp = kind === 'moto' && cells[k].tp;
       total++;
       let cls = '', status = 'NOT RACED';
-      if (rdIsT(r.out)) { transfers++; logged++; if (r.out === 'T1') rd1++; cls = 'go'; status = r.out === 'T' ? 'TRANSFER' : `TRANSFER RD ${r.out[1]}`; }
+      if (rdIsT(r.out)) { transfers++; logged++; if (r.out === 'T1') rd1++; cls = 'go'; status = 'TRANSFERRED'; }
+      else if (r.out === 'R2') { cls = 'or'; status = '2ND ROUND'; }
       else if (r.out === 'OUT') { logged++; cls = 'out'; status = 'OUT'; }
       else if (kind === 'main' && r.p1) { logged++; cls = r.p1 <= 3 ? 'pod' : 'or'; status = RD_ORD[r.p1].toUpperCase(); }
       else if (tp && (r.p1 || r.p2 || r.p3)) { cls = 'or'; status = `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)} · WAITING`; }
