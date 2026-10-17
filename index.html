@@ -550,6 +550,7 @@
   .rd-item.open { border-color: #ff5500; }
   .rd-item.logged { border-color: #1f4d10; }
   .rd-item.nl { border-color: #5a2a10; }
+  .rd-item.r2 { border-color: #ff5500; }
   .rd-item.flag { border-color: #ff3b3b; }
   .rd-row { width: 100%; min-height: 54px; display: flex; align-items: center; gap: 10px; padding: 6px 12px;
     background: transparent; border: 0; color: #fff; text-align: left; }
@@ -3380,7 +3381,7 @@ function rdLogHtml() {
     else if (r.out === 'OUT') { chip = 'OUT'; cc = 'out'; }
     else if (it.kind === 'main' && r.p1) { chip = RD_ORD[r.p1].toUpperCase(); cc = r.p1 <= 3 ? 'go' : 'or'; }
     else if (it.tp && (r.p1 || r.p2 || r.p3)) { chip = `TP ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)}`; cc = 'or'; }
-    let state = it.logged ? 'logged' : '';
+    let state = it.logged ? (r.out === 'R2' ? 'r2' : 'logged') : '';
     if (!it.logged && !it.flag && it.lo < lastLogged) { chip = 'NOT LOGGED'; cc = 'nl'; state = 'nl'; }
     if (it.flag) { chip = 'CHECK'; cc = 'chk'; state = 'flag'; }
     const isOpen = S.rd.open === it.key;
