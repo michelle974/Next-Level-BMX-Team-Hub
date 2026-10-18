@@ -342,6 +342,16 @@
   .rsvp-chip { flex: 1; min-width: 0; height: 38px; border-radius: 10px; border: 2px solid var(--line); background: #fff;
     font-family: inherit; font-weight: 800; font-size: 12px; line-height: 1.1; color: #888; cursor: pointer; padding: 0 4px; }
   .rsvp-chip.on { background: var(--green); border-color: var(--green); color: #0a0a0a; }
+  .rsvp-nt { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 2px 0; font-family: inherit;
+    font-size: 14px; font-weight: 700; color: #333; cursor: pointer; text-align: left; }
+  .rsvp-nt i { font-style: normal; font-weight: 600; color: var(--muted); font-size: 12.5px; }
+  .rsvp-nt .box { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 6px; border: 2px solid var(--line); display: flex;
+    align-items: center; justify-content: center; font-size: 13px; font-weight: 900; color: #fff; }
+  .rsvp-nt.on .box { background: #111; border-color: #111; }
+  .ntag { background: #111; color: #fff; border-radius: 5px; padding: 1px 6px; font-size: 11px; letter-spacing: .04em; }
+  .rsvp-row.nt-row { background: #f6f6f6; }
+  .rsvp-counts { font-size: 14px; color: var(--muted); margin: -4px 0 12px; }
+  .rsvp-counts b { color: var(--text); }
   .toggle-btn {
     width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line);
     background: #fff; display: flex; align-items: center; justify-content: center;
@@ -1483,12 +1493,15 @@ const SCREENS = {
       const st = statusOf(r.gid);
       const pd = paidOf(r.gid);
       const mark = !showMark ? '' : `<span class="rsvp-mark ${st === 'going' ? 'going' : st === 'not_going' ? 'notgoing' : 'none'}">${st === 'going' ? '✓' : st === 'not_going' ? '✕' : '—'}</span>`;
-      // Your RSVP: day/class buttons right under Going. Full Roster: a note under
-      // the name, and tapping the name opens the same buttons.
-      const sum = showMark ? rsvpSummary(e, r.gid) : '';
-      const open = !showMark || (S.rsvpOpen || {})[r.gid];
-      return `<div class="rsvp-row">
-        <div class="rsvp-name${sum ? ' tap' : ''}" ${sum ? `onclick="toggleRsvpOpen('${r.gid}')"` : ''}>${mark}${esc(r.name)}${sum ? `<small>${sum}</small>` : ''}</div>
+      // Race events: tap a name to open the day/class buttons or close back to the
+      // short roster line. Your RSVP starts open, the Full Roster starts closed.
+      const okey = `${showMark ? 'r' : 'm'}|${r.gid}`;
+      const opts = rsvpOptsHtml(e, r.gid);
+      const open = !!opts && ((S.rsvpOpen || {})[okey] ?? !showMark);
+      const sum = opts && !open ? rsvpSummary(e, r.gid) : '';
+      const nt = rsvpList(((S.rsvpData || {})[r.gid] || {}).natteam).includes('yes') && st === 'going';
+      return `<div class="rsvp-row${nt ? ' nt-row' : ''}">
+        <div class="rsvp-name${opts ? ' tap' : ''}" ${opts ? `onclick="toggleRsvpOpen('${okey}',${!showMark})"` : ''}>${mark}${esc(r.name)}${sum ? `<small>${sum}</small>` : ''}</div>
         <div class="rsvp-groups">
           <div class="rsvp-group">
             <span class="glabel">Going</span>
@@ -1505,7 +1518,7 @@ const SCREENS = {
             </div>
           </div>` : ''}
         </div>
-        ${open ? rsvpOptsHtml(e, r.gid) : ''}
+        ${open ? opts : ''}
       </div>`;
     };
 
@@ -1532,6 +1545,13 @@ const SCREENS = {
       const rank = st => st === 'going' ? 0 : (st === 'not_going' ? 2 : 1);
       const sorted = [...riders].sort((a, b) => rank(statusOf(a.gid)) - rank(statusOf(b.gid)));
       html += '<h2 style="margin-top:24px">Full Roster</h2>';
+      if (rsvpRaceKind(e)) {
+        const going = riders.filter(r => statusOf(r.gid) === 'going');
+        const ntN = going.filter(r => rsvpList((data[r.gid] || {}).natteam).includes('yes')).length;
+        const noN = riders.filter(r => statusOf(r.gid) === 'not_going').length;
+        html += `<div class="rsvp-counts"><b>Racing for Next Level: ${going.length - ntN} rider${going.length - ntN === 1 ? '' : 's'}</b>${
+          ntN ? ` · National team: ${ntN}` : ''} · Not going: ${noN} · No response: ${riders.length - going.length - noN}</div>`;
+      }
       for (const r of sorted) html += rsvpRow(r, true);
       if (!sorted.length) html += '<div class="empty">No riders on the roster yet.</div>';
     }
@@ -2462,7 +2482,7 @@ const RSVP_CLASS_NAME = { class: 'Class', cruiser: 'Cruiser', open: 'Open/Pro-Am
 function rsvpRaceKind(e) {
   const t = (e?.title || '').toLowerCase();
   if (!t || isTrainingEvent(e)) return null;
-  if (/national/.test(t)) return { days: ['fri', 'sat', 'sun'] };
+  if (/national/.test(t)) return { days: ['fri', 'sat', 'sun'], national: true };
   if (/state race/.test(t)) return { days: ['sat', 'sun'] };
   if (/state championship|state champs|gold cup|qualifier/.test(t)) return { days: [] };
   return null;
@@ -2483,6 +2503,7 @@ function rsvpSummary(e, gid) {
     parts.push(!days.length ? '<span class="pick">Days not picked</span>'
       : days.length === 1 ? `${RSVP_DAY_NAME[days[0]]} only` : days.map(x => RSVP_DAY_NAME[x]).join(' · '));
   }
+  if (kind.national && rsvpList(d.natteam).includes('yes')) { parts.push('<span class="ntag">NATIONAL TEAM</span>'); return parts.join(' &nbsp;|&nbsp; '); }
   const cls = ['class', 'cruiser', 'open'].filter(x => rsvpList(d.racing).includes(x));
   parts.push(cls.length ? cls.map(x => RSVP_CLASS_NAME[x]).join(', ') : '<span class="pick">Classes not picked</span>');
   return parts.join(' &nbsp;|&nbsp; ');
@@ -2495,7 +2516,12 @@ function rsvpOptsHtml(e, gid) {
   const chip = (field, val, label, on) => `<button class="rsvp-chip${on ? ' on' : ''}" onclick="toggleRsvpPick('${esc(e.id)}','${gid}','${field}','${val}')">${on ? '✓ ' : ''}${label}</button>`;
   let html = '<div class="rsvp-opts">';
   if (kind.days.length) html += `<div class="rsvp-opt"><span class="glabel">Days</span>${kind.days.map(x => chip('days', x, RSVP_DAY_NAME[x].toUpperCase(), days.includes(x))).join('')}</div>`;
-  html += `<div class="rsvp-opt"><span class="glabel">Racing</span>${['class', 'cruiser', 'open'].map(x => chip('racing', x, RSVP_CLASS_NAME[x].toUpperCase(), racing.includes(x))).join('')}</div>`;
+  // Racing for a national team: days still count, classes don't count for Next Level.
+  const nt = kind.national && rsvpList(d.natteam).includes('yes');
+  if (kind.national) {
+    html += `<button class="rsvp-nt${nt ? ' on' : ''}" onclick="toggleNatTeam('${esc(e.id)}','${gid}')"><span class="box">${nt ? '✓' : ''}</span>Racing for a national team${nt ? ' <i>(doesn\'t count for Next Level)</i>' : ''}</button>`;
+  }
+  if (!nt) html += `<div class="rsvp-opt"><span class="glabel">Racing</span>${['class', 'cruiser', 'open'].map(x => chip('racing', x, RSVP_CLASS_NAME[x].toUpperCase(), racing.includes(x))).join('')}</div>`;
   return html + '</div>';
 }
 async function toggleRsvpPick(eventId, riderGid, field, val) {
@@ -2514,7 +2540,30 @@ async function toggleRsvpPick(eventId, riderGid, field, val) {
     });
   } catch (err) { S.rsvpData[riderGid] = { ...S.rsvpData[riderGid], [field]: prev }; render(); alert(err.message); }
 }
-function toggleRsvpOpen(gid) { S.rsvpOpen = S.rsvpOpen || {}; S.rsvpOpen[gid] = !S.rsvpOpen[gid]; render(); }
+// Checked: classes cleared, rider left out of the Next Level count. Unchecked:
+// Racing comes back with the rider's usual classes.
+async function toggleNatTeam(eventId, riderGid) {
+  const e = findCalEvent(eventId);
+  const d = (S.rsvpData?.[riderGid]) || {};
+  const on = !rsvpList(d.natteam).includes('yes');
+  const upd = { natteam: on ? 'yes' : '', racing: on ? '' : rsvpUsual(riderGid).join(',') };
+  const prev = { natteam: d.natteam, racing: d.racing };
+  S.rsvpData[riderGid] = { ...d, ...upd };
+  render();
+  try {
+    await api('rsvpSet', {
+      eventId, riderGid, ...upd,
+      eventDate: e?.allDay ? e.start : (e ? new Date(e.start).toISOString().slice(0, 10) : ''),
+      eventTitle: e?.title || '',
+    });
+  } catch (err) { S.rsvpData[riderGid] = { ...S.rsvpData[riderGid], ...prev }; render(); alert(err.message); }
+}
+
+function toggleRsvpOpen(key, startsOpen) {
+  S.rsvpOpen = S.rsvpOpen || {};
+  S.rsvpOpen[key] = !(S.rsvpOpen[key] ?? startsOpen);
+  render();
+}
 
 async function setRsvp(eventId, riderGid, going) {
   const e = findCalEvent(eventId);
@@ -2525,7 +2574,7 @@ async function setRsvp(eventId, riderGid, going) {
   if (rsvpRaceKind(e)) {
     const have = (S.rsvpData?.[riderGid] || {});
     if (next === 'going') { if (!have.racing) extra.racing = rsvpUsual(riderGid).join(','); }
-    else if (have.days || have.racing) { extra.days = ''; extra.racing = ''; }
+    else if (have.days || have.racing || have.natteam) { extra.days = ''; extra.racing = ''; extra.natteam = ''; }
   }
   try {
     await api('rsvpSet', {

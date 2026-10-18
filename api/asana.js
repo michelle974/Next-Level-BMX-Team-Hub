@@ -1481,7 +1481,9 @@ export default async function handler(req, res) {
             const daysMatch = k.match(/^DAYS_(\d+)$/);
             if (daysMatch) { rsvps[daysMatch[1]] = { ...(rsvps[daysMatch[1]] || {}), days: v }; continue; }
             const racingMatch = k.match(/^RACING_(\d+)$/);
-            if (racingMatch) { rsvps[racingMatch[1]] = { ...(rsvps[racingMatch[1]] || {}), racing: v }; }
+            if (racingMatch) { rsvps[racingMatch[1]] = { ...(rsvps[racingMatch[1]] || {}), racing: v }; continue; }
+            const ntMatch = k.match(/^NATTEAM_(\d+)$/);
+            if (ntMatch) { rsvps[ntMatch[1]] = { ...(rsvps[ntMatch[1]] || {}), natteam: v }; }
           }
         }
         return res.json({
@@ -1492,7 +1494,7 @@ export default async function handler(req, res) {
       }
 
       case 'rsvpSet': {
-        const { gid, session, eventId, eventDate, eventTitle, riderGid, going, paid, days, racing } = body;
+        const { gid, session, eventId, eventDate, eventTitle, riderGid, going, paid, days, racing, natteam } = body;
         if (!verifySession(gid, session)) return res.status(401).json({ error: 'Session invalid.' });
         if (!eventId || !riderGid) return res.status(400).json({ error: 'Missing eventId or riderGid.' });
         if (!(await canManageRider(gid, riderGid))) {
@@ -1505,6 +1507,7 @@ export default async function handler(req, res) {
         const pick = (v, allowed) => String(v || '').toLowerCase().split(',').map(x => x.trim()).filter(x => allowed.includes(x)).join(',');
         if (days !== undefined) updates[`DAYS_${riderGid}`] = pick(days, ['fri', 'sat', 'sun']);
         if (racing !== undefined) updates[`RACING_${riderGid}`] = pick(racing, ['class', 'cruiser', 'open']);
+        if (natteam !== undefined) updates[`NATTEAM_${riderGid}`] = natteam === 'yes' ? 'yes' : '';
         await patchTask(task.gid, updates);
         return res.json({ ok: true });
       }
