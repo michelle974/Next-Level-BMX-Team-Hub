@@ -3182,6 +3182,8 @@ function rdEff(key) {
     // Logged 2nd Round and the live site now has the round 2 answer: show that.
     if (L.v.out === 'R2' && F && (F.out === 'T2' || F.out === 'OUT')) return { r: F, flag: null, by: 'live site' };
     const flag = rdHas(F) && !rdSame(L.v, F) && (d.acks || {})[key] !== JSON.stringify(rdClean(F)) ? F : null;
+    // Parents logged round places only: the live site's transfer/out still counts.
+    if (!flag && !L.v.out && F && F.out) return { r: { ...L.v, out: F.out }, flag: null, by: L.by };
     return { r: L.v, flag, by: L.by };
   }
   // A parent cleared this result on purpose: it stays cleared. If the live site
