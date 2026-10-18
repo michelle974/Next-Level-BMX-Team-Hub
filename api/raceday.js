@@ -276,7 +276,8 @@ function parseFeed(feed, riders, opts = {}) {
   }
   let race = opts.raceId ? races.find(r => r.id === opts.raceId) : null;
   if (!race && races.length > 1 && opts.day) {
-    const word = opts.day === 'SAT' ? /sat/i : /sun/i;
+    // The live site reorders races (day 2 can come first), so go by name: "#1" / "#2", Sat / Sun.
+    const word = opts.day === 'SAT' ? /\bsat|#\s*1\b|\b(race|day)\s*1\b/i : /\bsun|#\s*2\b|\b(race|day)\s*2\b/i;
     race = races.find(r => word.test(r.name || '')) || races[opts.day === 'SAT' ? 0 : 1];
   }
   race = race || races[0];
