@@ -3352,6 +3352,8 @@ function rdTpNext(r, c) {
   if (r.out) return '';
   if (r.p1 && !r.p2) return '2ND ROUND';
   if (r.p2 && rdTpAll(c)) return 'MAIN';
+  // 9+ riders ("Total Points To Semi/Main"): 3 rounds, then transfer on points.
+  if (r.p2 && !r.p3) return '3RD ROUND';
   return '';
 }
 
@@ -3399,7 +3401,7 @@ function rdLogHtml() {
       const nums = String(c.num || '').match(/\d+/g);
       items.push({ key, e, k, kind, c, base, r, flag, by, tp, lo: nums ? Math.min(...nums.map(Number)) : 9999,
                    // Total points counts as logged once a round place is in.
-                   logged: kind === 'main' ? !!r.p1 : !!(r.out || (tp && (r.p1 || r.p2))) });
+                   logged: kind === 'main' ? !!r.p1 : !!(r.out || (tp && (r.p1 || r.p2 || r.p3))) });
     }
   }
   items.sort((a, b) => a.lo - b.lo || a.e.name.localeCompare(b.e.name));
@@ -3445,8 +3447,12 @@ function rdLogHtml() {
       if (it.kind === 'main') html += places('FINISH', 'p1');
       else if (it.tp) {
         html += places('ROUND 1 PLACE', 'p1') + places('ROUND 2 PLACE', 'p2');
-        // The main is round 3: log its finish on the main card.
-        if (!rdTpAll(it.c)) outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
+        // 8 or fewer: the main is round 3 (log it on the main card).
+        // 9+: a 3rd round, then transfer to the semi/main on total points.
+        if (!rdTpAll(it.c)) {
+          html += places('ROUND 3 PLACE', 'p3');
+          outs = [['T', 'TRANSFERRED'], ['OUT', 'OUT']];
+        }
       } else if (it.kind === 'moto') {
         const o = r.out || '';
         const b = (round, yes, on, cls) => `<button class="${on ? 'on ' + cls : ''}" onclick="rdRound('${it.key}',${round},${yes})">${yes ? 'YES' : 'NO'}</button>`;
