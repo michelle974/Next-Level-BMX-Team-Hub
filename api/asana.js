@@ -3,6 +3,7 @@
 // All operations are scoped to the Team Hub project.
 
 import crypto from 'crypto';
+import { DEFAULT_CLASSES } from './_classes.js';
 
 const ASANA = 'https://app.asana.com/api/1.0';
 const TOKEN = process.env.ASANA_TOKEN;
@@ -1475,17 +1476,23 @@ export default async function handler(req, res) {
             const goingMatch = k.match(/^RSVP_(\d+)$/);
             if (goingMatch) { rsvps[goingMatch[1]] = { ...(rsvps[goingMatch[1]] || {}), going: v }; continue; }
             const paidMatch = k.match(/^PAID_(\d+)$/);
-            if (paidMatch) { rsvps[paidMatch[1]] = { ...(rsvps[paidMatch[1]] || {}), paid: v }; }
+            if (paidMatch) { rsvps[paidMatch[1]] = { ...(rsvps[paidMatch[1]] || {}), paid: v }; continue; }
+            // Race events: which days the rider is going and which classes they race.
+            const daysMatch = k.match(/^DAYS_(\d+)$/);
+            if (daysMatch) { rsvps[daysMatch[1]] = { ...(rsvps[daysMatch[1]] || {}), days: v }; continue; }
+            const racingMatch = k.match(/^RACING_(\d+)$/);
+            if (racingMatch) { rsvps[racingMatch[1]] = { ...(rsvps[racingMatch[1]] || {}), racing: v }; }
           }
         }
         return res.json({
           rsvps,
-          riders: riders.map(r => ({ gid: r.gid, name: r.name })),
+          // usual: the rider's normal classes, used to pre-check Racing on a new RSVP.
+          riders: riders.map(r => ({ gid: r.gid, name: r.name, usual: String(r.fields.RACE_CLASSES ?? DEFAULT_CLASSES[r.gid] ?? '') })),
         });
       }
 
       case 'rsvpSet': {
-        const { gid, session, eventId, eventDate, eventTitle, riderGid, going, paid } = body;
+        const { gid, session, eventId, eventDate, eventTitle, riderGid, going, paid, days, racing } = body;
         if (!verifySession(gid, session)) return res.status(401).json({ error: 'Session invalid.' });
         if (!eventId || !riderGid) return res.status(400).json({ error: 'Missing eventId or riderGid.' });
         if (!(await canManageRider(gid, riderGid))) {
@@ -1495,6 +1502,9 @@ export default async function handler(req, res) {
         const updates = {};
         if (going !== undefined) updates[`RSVP_${riderGid}`] = going;
         if (paid !== undefined) updates[`PAID_${riderGid}`] = paid;
+        const pick = (v, allowed) => String(v || '').toLowerCase().split(',').map(x => x.trim()).filter(x => allowed.includes(x)).join(',');
+        if (days !== undefined) updates[`DAYS_${riderGid}`] = pick(days, ['fri', 'sat', 'sun']);
+        if (racing !== undefined) updates[`RACING_${riderGid}`] = pick(racing, ['class', 'cruiser', 'open']);
         await patchTask(task.gid, updates);
         return res.json({ ok: true });
       }

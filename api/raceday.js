@@ -5,6 +5,7 @@
 // parents logging at the same moment never overwrite each other).
 
 import crypto from 'crypto';
+import { DEFAULT_CLASSES } from './_classes.js';
 
 const ASANA = 'https://app.asana.com/api/1.0';
 const TOKEN = process.env.ASANA_TOKEN;
@@ -28,24 +29,7 @@ const SCHEDULE = [
 ];
 /* Points roster and each rider's usual classes. A RACE_CLASSES line on the
    rider's Team Hub record (set from ADMIN > tap a name > THIS SEASON) wins. */
-const DEFAULT_CLASSES = {
-  '1218574356224928': 'class',               // Danny
-  '1218417819296738': 'cruiser,class',       // Westin
-  '1218870867210707': 'class',               // Maverick
-  '1218502006939913': 'class',               // Cameron
-  '1218474207475104': 'open,class',          // Addison
-  '1218499152780145': 'open,class',          // John
-  '1218422751273322': 'open,cruiser,class',  // Finn
-  '1218536822086540': 'open,cruiser,class',  // Beau
-  '1217688811972923': 'cruiser,class',       // Gavin
-  '1218534177518486': 'class',               // Davis
-  '1218499552279429': 'cruiser,class',       // Jimmy
-  '1217691735658902': 'cruiser,class',       // Vincenzo
-  '1219017784885460': 'class',               // Noah
-  '1218474699070852': 'cruiser',             // Caleb
-  '1218868051910927': 'open,class',          // Juan
-  '1218780741222024': 'open,class',          // Gage
-};
+// Usual classes per rider live in _classes.js (shared with the RSVP page).
 /* Last season's state series results (2025-2026 tracker: Ancient City,
    Naples, Sarasota, Tampa), used for pick predictions.
    rider gid -> race type -> [[start-of-day rider count, main finish (0 = no main), class code], ...] */

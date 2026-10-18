@@ -331,6 +331,17 @@
   .rsvp-group { display: flex; align-items: center; gap: 6px; }
   .rsvp-group .glabel { font-size: 10.5px; color: var(--muted); font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
   .toggle-pair { display: flex; gap: 4px; }
+  /* Race event RSVP: days going + classes racing */
+  .rsvp-row { flex-wrap: wrap; }
+  .rsvp-name small { display: block; font-size: 13px; font-weight: 700; color: var(--muted); margin-top: 2px; white-space: normal; }
+  .rsvp-name small .pick { color: var(--orange); }
+  .rsvp-name.tap { cursor: pointer; }
+  .rsvp-opts { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid #eee; }
+  .rsvp-opt { display: flex; gap: 6px; align-items: center; }
+  .rsvp-opt .glabel { min-width: 52px; font-size: 10.5px; color: var(--muted); font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+  .rsvp-chip { flex: 1; min-width: 0; height: 38px; border-radius: 10px; border: 2px solid var(--line); background: #fff;
+    font-family: inherit; font-weight: 800; font-size: 12px; line-height: 1.1; color: #888; cursor: pointer; padding: 0 4px; }
+  .rsvp-chip.on { background: var(--green); border-color: var(--green); color: #0a0a0a; }
   .toggle-btn {
     width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line);
     background: #fff; display: flex; align-items: center; justify-content: center;
@@ -1466,8 +1477,12 @@ const SCREENS = {
       const st = statusOf(r.gid);
       const pd = paidOf(r.gid);
       const mark = !showMark ? '' : `<span class="rsvp-mark ${st === 'going' ? 'going' : st === 'not_going' ? 'notgoing' : 'none'}">${st === 'going' ? '✓' : st === 'not_going' ? '✕' : '—'}</span>`;
+      // Your RSVP: day/class buttons right under Going. Full Roster: a note under
+      // the name, and tapping the name opens the same buttons.
+      const sum = showMark ? rsvpSummary(e, r.gid) : '';
+      const open = !showMark || (S.rsvpOpen || {})[r.gid];
       return `<div class="rsvp-row">
-        <div class="rsvp-name">${mark}${esc(r.name)}</div>
+        <div class="rsvp-name${sum ? ' tap' : ''}" ${sum ? `onclick="toggleRsvpOpen('${r.gid}')"` : ''}>${mark}${esc(r.name)}${sum ? `<small>${sum}</small>` : ''}</div>
         <div class="rsvp-groups">
           <div class="rsvp-group">
             <span class="glabel">Going</span>
@@ -1484,6 +1499,7 @@ const SCREENS = {
             </div>
           </div>` : ''}
         </div>
+        ${open ? rsvpOptsHtml(e, r.gid) : ''}
       </div>`;
     };
 
@@ -2433,18 +2449,86 @@ async function loadRsvpStatus(eventId) {
   }
 }
 
+/* Race events: day and class picks under "Going".
+   State races: Sat/Sun. Nationals: Fri/Sat/Sun. One-day races: classes only. */
+const RSVP_DAY_NAME = { fri: 'Fri', sat: 'Sat', sun: 'Sun' };
+const RSVP_CLASS_NAME = { class: 'Class', cruiser: 'Cruiser', open: 'Open/Pro-Am' };
+function rsvpRaceKind(e) {
+  const t = (e?.title || '').toLowerCase();
+  if (!t || isTrainingEvent(e)) return null;
+  if (/national/.test(t)) return { days: ['fri', 'sat', 'sun'] };
+  if (/state race/.test(t)) return { days: ['sat', 'sun'] };
+  if (/state championship|state champs|gold cup|qualifier/.test(t)) return { days: [] };
+  return null;
+}
+const rsvpList = v => String(v || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+function rsvpUsual(riderGid) {
+  const r = (S.rsvpRiders || []).find(x => x.gid === riderGid);
+  return rsvpList(r?.usual).filter(x => RSVP_CLASS_NAME[x]);
+}
+// Under-the-name note for the roster: "Sat · Sun | Class, Open/Pro-Am".
+function rsvpSummary(e, gid) {
+  const kind = rsvpRaceKind(e);
+  const d = (S.rsvpData || {})[gid] || {};
+  if (!kind || d.going !== 'going') return '';
+  const parts = [];
+  if (kind.days.length) {
+    const days = kind.days.filter(x => rsvpList(d.days).includes(x));
+    parts.push(!days.length ? '<span class="pick">Days not picked</span>'
+      : days.length === 1 ? `${RSVP_DAY_NAME[days[0]]} only` : days.map(x => RSVP_DAY_NAME[x]).join(' · '));
+  }
+  const cls = ['class', 'cruiser', 'open'].filter(x => rsvpList(d.racing).includes(x));
+  parts.push(cls.length ? cls.map(x => RSVP_CLASS_NAME[x]).join(', ') : '<span class="pick">Classes not picked</span>');
+  return parts.join(' &nbsp;|&nbsp; ');
+}
+function rsvpOptsHtml(e, gid) {
+  const kind = rsvpRaceKind(e);
+  const d = (S.rsvpData || {})[gid] || {};
+  if (!kind || d.going !== 'going') return '';
+  const days = rsvpList(d.days), racing = rsvpList(d.racing);
+  const chip = (field, val, label, on) => `<button class="rsvp-chip${on ? ' on' : ''}" onclick="toggleRsvpPick('${esc(e.id)}','${gid}','${field}','${val}')">${on ? '✓ ' : ''}${label}</button>`;
+  let html = '<div class="rsvp-opts">';
+  if (kind.days.length) html += `<div class="rsvp-opt"><span class="glabel">Days</span>${kind.days.map(x => chip('days', x, RSVP_DAY_NAME[x].toUpperCase(), days.includes(x))).join('')}</div>`;
+  html += `<div class="rsvp-opt"><span class="glabel">Racing</span>${['class', 'cruiser', 'open'].map(x => chip('racing', x, RSVP_CLASS_NAME[x].toUpperCase(), racing.includes(x))).join('')}</div>`;
+  return html + '</div>';
+}
+async function toggleRsvpPick(eventId, riderGid, field, val) {
+  const e = findCalEvent(eventId);
+  const d = (S.rsvpData?.[riderGid]) || {};
+  const cur = rsvpList(d[field]);
+  const next = (cur.includes(val) ? cur.filter(x => x !== val) : [...cur, val]).join(',');
+  const prev = d[field];
+  S.rsvpData[riderGid] = { ...d, [field]: next };
+  render();
+  try {
+    await api('rsvpSet', {
+      eventId, riderGid, [field]: next,
+      eventDate: e?.allDay ? e.start : (e ? new Date(e.start).toISOString().slice(0, 10) : ''),
+      eventTitle: e?.title || '',
+    });
+  } catch (err) { S.rsvpData[riderGid] = { ...S.rsvpData[riderGid], [field]: prev }; render(); alert(err.message); }
+}
+function toggleRsvpOpen(gid) { S.rsvpOpen = S.rsvpOpen || {}; S.rsvpOpen[gid] = !S.rsvpOpen[gid]; render(); }
+
 async function setRsvp(eventId, riderGid, going) {
   const e = findCalEvent(eventId);
   const current = (S.rsvpData?.[riderGid] || {}).going || '';
   const next = current === going ? '' : going; // tapping the active option clears it
+  // Race events: Going pre-checks the rider's usual classes; anything else clears the picks.
+  const extra = {};
+  if (rsvpRaceKind(e)) {
+    const have = (S.rsvpData?.[riderGid] || {});
+    if (next === 'going') { if (!have.racing) extra.racing = rsvpUsual(riderGid).join(','); }
+    else if (have.days || have.racing) { extra.days = ''; extra.racing = ''; }
+  }
   try {
     await api('rsvpSet', {
-      eventId, riderGid, going: next,
+      eventId, riderGid, going: next, ...extra,
       eventDate: e?.allDay ? e.start : (e ? new Date(e.start).toISOString().slice(0, 10) : ''),
       eventTitle: e?.title || '',
     });
     S.rsvpData = S.rsvpData || {};
-    S.rsvpData[riderGid] = { ...(S.rsvpData[riderGid] || {}), going: next };
+    S.rsvpData[riderGid] = { ...(S.rsvpData[riderGid] || {}), going: next, ...extra };
     render();
   } catch (err) { alert(err.message); }
 }
