@@ -266,8 +266,14 @@ const roundKey = { Qtr: 'Q', Semi: 'S', Main: 'M' };
 
 /* riders: [{id, name, serial}] from the Team Hub. Returns entries + feed results. */
 function parseFeed(feed, riders, opts = {}) {
-  const races = Object.values(feed.races || {}).sort((a, b) => (a.order || 0) - (b.order || 0));
-  if (!races.length) return { error: 'No races in the live feed yet.' };
+  const taken = new Set(opts.taken || []);
+  const all = Object.values(feed.races || {}).sort((a, b) => (a.order || 0) - (b.order || 0));
+  if (!all.length) return { error: 'No races in the live feed yet.' };
+  // A race already loaded for another day (Saturday) is never this day's race.
+  const races = all.filter(r => !taken.has(r.id));
+  if (!races.length) {
+    return { error: `This day's motos aren't posted yet. The live site only has ${String(all[all.length - 1].name || 'the last race').trim()}, which is already loaded for the other day.` };
+  }
   let race = opts.raceId ? races.find(r => r.id === opts.raceId) : null;
   if (!race && races.length > 1 && opts.day) {
     const word = opts.day === 'SAT' ? /sat/i : /sun/i;
@@ -516,7 +522,11 @@ export default async function handler(req, res) {
         const riders = (await listSection(SEC_RIDERS)).map(r => ({
           id: r.gid, name: r.name, serial: r.fields.USABMX || '',
         }));
-        const parsed = parseFeed(feed, riders, { day: day.day, raceId: body.raceId || task.fields.FEED_RACE || '' });
+        // Races already loaded for the other days of this race weekend.
+        const taken = (await listSection(await raceDaySection()))
+          .filter(t => t.gid !== task.gid && (t.fields.DAY_KEY || '').split('|')[0] === day.race && t.fields.FEED_RACE)
+          .map(t => t.fields.FEED_RACE);
+        const parsed = parseFeed(feed, riders, { day: day.day, raceId: body.raceId || task.fields.FEED_RACE || '', taken });
         if (parsed.error) return res.status(409).json({ error: parsed.error });
         const now = new Date().toISOString();
         await patchTask(task.gid, {
