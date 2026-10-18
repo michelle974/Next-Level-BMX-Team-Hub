@@ -3484,7 +3484,10 @@ function rdBoardHtml() {
   const d = S.rd.data;
   let transfers = 0, rd1 = 0, logged = 0, total = 0;
   let cards = '';
-  const riders = Object.values(d.entries).sort((a, b) => a.name.localeCompare(b.name));
+  // Same order as the Log: each rider at their earliest moto number, then by name.
+  const firstMoto = e => Math.min(9999, ...RD_TYPES.filter(t => e.races[t])
+    .flatMap(t => (String(e.races[t].num || '').match(/\d+/g) || []).map(Number)));
+  const riders = Object.values(d.entries).sort((a, b) => firstMoto(a) - firstMoto(b) || a.name.localeCompare(b.name));
   for (const e of riders) {
     const cells = rdCells(e);
     const ok = k => cells[k] && rdQualified(e.id, cells, k);
