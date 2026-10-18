@@ -1008,6 +1008,7 @@ async function loadMyRidersQuietly() {
 /* ============ render ============ */
 function render() {
   const v = document.getElementById('view');
+  const top = v.scrollTop;
   const header = document.getElementById('appHeader');
   const isHome = S.screen === 'home';
   v.classList.toggle('rd-view', S.screen === 'raceday');
@@ -1038,7 +1039,12 @@ function render() {
       : 'Me';
     v.innerHTML = (SCREENS[S.screen] || SCREENS.home)();
   }
-  v.scrollTop = 0;
+  // Same page re-drawn (a button tap, data loading in): keep the scroll position.
+  // A different page (or a different event): start at the top.
+  const key = `${S.screen}|${S.calSelectedId || ''}`;
+  if (key !== S.lastRenderKey) v.scrollTop = 0;
+  else v.scrollTop = top;
+  S.lastRenderKey = key;
 }
 
 function formStatusList() {
