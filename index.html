@@ -594,7 +594,7 @@
   .rd-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .rd-stat { border-radius: 8px; padding: 6px 10px; background: #161616; border: 2px solid #2a2a2a; }
   .rd-stat.g { background: #102b08; border-color: #38f100; }
-  .rd-stat small { display: block; font-size: 13px; font-weight: 800; letter-spacing: 2px; color: #d9d9d9; }
+  .rd-stat small { display: block; font-size: 12px; font-weight: 800; letter-spacing: 1px; line-height: 1.15; color: #d9d9d9; }
   .rd-stat.g small { color: #38f100; }
   .rd-stat b { font-size: 30px; font-weight: 800; font-style: italic; line-height: 1; }
   .rd-stat b i { font-size: 16px; color: #8f8f8f; font-style: normal; }
@@ -3538,10 +3538,30 @@ function rdBoardHtml() {
       <div class="rd-card-top"><b>${esc(e.name.split(' ')[0].toUpperCase())}</b><span>${back ? 'TAP TO FLIP BACK' : 'TAP FOR DETAILS'}</span></div>
       ${inner}</button>`;
   }
+  // Team boxes, one count per rider per class raced today.
+  let r1 = 0, r1Of = 0, mains = 0, raced = 0, better = 0, betterOf = 0;
+  for (const e of riders) {
+    const cells = rdCells(e);
+    for (const t of RD_TYPES) {
+      if (!cells[t]) continue;
+      raced++;
+      const mv = rdEff(`${e.id}|${t}`).r;
+      if (!cells[t].tp) { r1Of++; if (mv.out === 'T1') r1++; }
+      const inMain = !!cells[t + 'M'] && rdQualified(e.id, cells, t + 'M');
+      if (inMain) mains++;
+      // Improved on their last race in this class: better main place, or a main after a DNQ.
+      const prev = (d.last || {})[`${e.id}|${t}`];
+      if (prev) {
+        betterOf++;
+        const place = inMain ? (rdEff(`${e.id}|${t}M`).r.p1 || 0) : 0;
+        if (place && (!prev[1] || place < prev[1])) better++;
+      }
+    }
+  }
   return `<div class="rd-stats">
-      <div class="rd-stat g"><small>TRANSFERS</small><b>${transfers}</b></div>
-      <div class="rd-stat"><small>RD 1</small><b>${rd1}</b></div>
-      <div class="rd-stat"><small>LOGGED</small><b>${logged}<i> / ${total}</i></b></div>
+      <div class="rd-stat g"><small>RD 1 TRANSFERS</small><b>${r1}<i> / ${r1Of}</i></b></div>
+      <div class="rd-stat"><small>MAINS MADE</small><b>${mains}<i> / ${raced}</i></b></div>
+      <div class="rd-stat"><small>IMPROVED</small><b>${better}<i> / ${betterOf}</i></b></div>
     </div>
     <div class="rd-cols"><span></span><span>MOTO</span><span>QTR / SEMI</span><span>MAIN</span></div>
     <div class="rd-list">${cards || '<div class="rd-wait">No team motos found for this day.</div>'}</div>`;

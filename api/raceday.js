@@ -53,11 +53,15 @@ const HISTORY_2026 = {"1217688662198033":{"class":[[18,0,"8i"],[15,0,"8i"],[16,0
 
 // This season's race days that Michelle finalized on the Team Sheets page.
 // Only finalized scores count, so predictions match what she signed off on.
+// Only days before the one being viewed count (all days when testing).
 function seasonHistory(dayTasks, skipKey) {
   const rows = {}, days = [];
+  const order = allDays().map(d => d.key);
+  const cur = order.indexOf(skipKey);
   for (const t of dayTasks) {
     const key = t.fields.DAY_KEY || t.name.replace(/^RACEDAY:\s*/, '');
     if (key === skipKey || key === TEST_DAY.key) continue;
+    if (cur >= 0 && order.indexOf(key) > cur) continue;
     const fin = jparse(t.fields.FINAL_JSON, null);
     if (!fin || !fin.scores) continue;
     days.push({ key, at: fin.at || '' });
@@ -435,8 +439,22 @@ export default async function handler(req, res) {
     switch (action) {
 
       case 'state': {
-        const task = await findDayTask(dayKey, false);
+        const dayTasks = await listSection(await raceDaySection());
+        const task = dayTasks.find(t => t.name === `RACEDAY: ${dayKey}`) || null;
         const f = task?.fields || {};
+        // Last season plus finalized days before this one, oldest first.
+        const { rows: season, days: finalDays } = seasonHistory(dayTasks, dayKey);
+        const history = JSON.parse(JSON.stringify(HISTORY_2026));
+        for (const [id, types] of Object.entries(season)) {
+          for (const [type, rows] of Object.entries(types)) {
+            ((history[id] = history[id] || {})[type] = history[id][type] || []).push(...rows);
+          }
+        }
+        // Everyone gets each rider's last race per class (for the IMPROVED box).
+        const last = {};
+        for (const [id, types] of Object.entries(history)) {
+          for (const [type, rows] of Object.entries(types)) if (rows.length) last[`${id}|${type}`] = rows[rows.length - 1];
+        }
         const { logs, acks } = task ? await readLogs(task.gid) : { logs: {}, acks: {} };
         const out = {
           me: { admin: me.admin, helper: me.helper || me.admin },
@@ -445,7 +463,7 @@ export default async function handler(req, res) {
           loaded: !!f.MOTOS_JSON,
           entries: jparse(f.MOTOS_JSON, {}),
           feed: jparse(f.FEED_JSON, {}),
-          logs, acks,
+          logs, acks, last,
         };
         if (me.admin || me.helper) {
           out.updated = f.UPDATED || '';
@@ -457,15 +475,8 @@ export default async function handler(req, res) {
           out.locked = (f.LOCKED || '').toLowerCase() === 'true';
           out.dayClasses = jparse(f.CLASSES_JSON, {});
           // Pick predictions: last season plus this season's finished days.
-          const { rows: season, days: finalDays } = seasonHistory(await listSection(await raceDaySection()), dayKey);
           out.historyDays = finalDays;
           out.final = jparse(f.FINAL_JSON, null);
-          const history = JSON.parse(JSON.stringify(HISTORY_2026));
-          for (const [id, types] of Object.entries(season)) {
-            for (const [type, rows] of Object.entries(types)) {
-              ((history[id] = history[id] || {})[type] = history[id][type] || []).push(...rows);
-            }
-          }
           out.history = history;
           out.roster = riders
             .filter(r => r.fields.RACE_CLASSES !== undefined || DEFAULT_CLASSES[r.gid])
