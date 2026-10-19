@@ -312,6 +312,21 @@
   .pill.ok { background: #e4ffd9; color: #2a7000; }
   .pill.wait { background: #fff0e0; color: #a34e00; }
   .pill.grey { background: #eee; color: #666; }
+  .pill.soon { background: #111; color: var(--green); letter-spacing: .04em; }
+  .pill.deal { background: var(--orange); color: #fff; letter-spacing: .04em; }
+  .fly-photos { display: flex; gap: 10px; flex-wrap: wrap; }
+  .fly-thumb { width: 76px; height: 76px; border-radius: 10px; background: #eee center/cover; position: relative; }
+  .fly-thumb button { position: absolute; right: 4px; bottom: 4px; width: 24px; height: 24px; border-radius: 50%;
+    border: 0; background: #000; color: #fff; font-size: 15px; line-height: 24px; padding: 0; cursor: pointer; }
+  .fly-add { width: 76px; height: 76px; border-radius: 10px; border: 2px dashed #ccc; margin: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 30px; color: #999; cursor: pointer; }
+  .fly-add input { display: none; }
+  .fly-check { width: 72px; height: 72px; border-radius: 50%; background: var(--green); margin: 0 auto 18px;
+    display: flex; align-items: center; justify-content: center; font-size: 38px; font-weight: 900; }
+  .card .cnote {
+    font-size: 14px; font-weight: 600; margin-top: 10px; padding: 9px 11px;
+    background: #fff4ed; border-left: 4px solid var(--orange); border-radius: 8px; line-height: 1.4;
+  }
 
   /* ---------- RSVP rows ---------- */
   .rsvp-row {
@@ -926,6 +941,22 @@ function tileIcon(t) {
 // Assigning location.href hands off to the OS/native app and returns cleanly.
 const isStandalone = () =>
   window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+// Gear page vendor cards. Links live on the Gear Ordering tile in Asana
+// (SUBLINK_TANGENT, SUBLINK_FLY), so they change without a redeploy.
+const FLY_DEFAULT_URL = 'https://www.flyracing.com/';
+function tangentCard(url) {
+  const live = url && url.startsWith('http');
+  return `<div class="card${live ? '' : ' flat'}"${live ? ` onclick="openExternal('${esc(url)}')"` : ''}>
+    <div class="cname">Tangent Products${live ? '' : '<span class="pill soon">COMING SOON</span>'}</div>
+    <div class="cmeta">${live ? 'Team order program · opens the order page' : 'Team order program opens soon. Watch for it here.'}</div>
+    <div class="cnote">25% off all Tangent products. 10% off all non-Tangent products.</div></div>`;
+}
+function flyCard() {
+  return `<div class="card" onclick="openFlyOrder()">
+    <div class="cname">FLY Racing<span class="pill deal">35% OFF</span></div>
+    <div class="cmeta">Browse the catalog and send your order. The team gets 35% off all items.</div>
+    <div class="cnote">Orders go through Michelle. Tap to browse and send your order.</div></div>`;
+}
 function openExternal(url) {
   if (isStandalone()) window.location.href = url;
   else window.open(url, '_blank', 'noopener');
@@ -1013,6 +1044,7 @@ async function loadMyRidersQuietly() {
     if (S.screen === 'home') render();
   } catch {}
   loadMyInvoicesQuietly();
+  loadGearRequestsQuietly();
 }
 
 /* ============ render ============ */
@@ -1182,6 +1214,14 @@ const SCREENS = {
         <div class="t2">Team order invoice · tap to see it and pay</div></div>
       </button>`;
     });
+
+    if (S.isAdmin && S.gearReq && S.gearReq.count) {
+      html += `<button class="banner invoice" onclick="openExternal('${esc(S.gearReq.deskUrl)}')">
+        <div class="bicon">🛒</div>
+        <div><div class="t1">Gear Requests · ${S.gearReq.count} new</div>
+        <div class="t2">Family orders waiting on the Team Desk</div></div>
+      </button>`;
+    }
 
     const jcfg = S.config.jersey || {};
     const needsJersey = list.filter(r => r.jerseyStatus !== 'Complete');
@@ -1573,7 +1613,8 @@ const SCREENS = {
         <div class="cname">Team Jersey Order</div>
         <div class="cmeta">Sizes and numbers for the team order${
           jcfg.deadline ? ` · closes ${esc(jsDay(jcfg.deadline))}` : ''}</div></div>`}
-      ${opt('Gear', t.sub.gear)}
+      ${tangentCard(t.sub.tangent)}
+      ${flyCard()}
       ${opt('Jerseys &amp; Apparel', t.sub.jerseys)}
       ${opt('Number Plates', t.sub.plates)}`;
   },
@@ -2212,9 +2253,10 @@ const SCREENS = {
         <button id="v_admin" class="${t.visibility === 'admin' ? 'on' : ''}" onclick="setVis('admin')">Admin only</button>
       </div>
       ${t.label === 'Gear Ordering' ? `
-        <label>Gear link</label><input id="e_gear" value="${esc(t.sub.gear || '')}">
         <label>Jerseys / Apparel link</label><input id="e_jers" value="${esc(t.sub.jerseys || '')}">
-        <label>Number Plates link</label><input id="e_plat" value="${esc(t.sub.plates || '')}">` : ''}
+        <label>Number Plates link</label><input id="e_plat" value="${esc(t.sub.plates || '')}">
+        <label>Tangent Products link (blank = Coming soon)</label><input id="e_tang" value="${esc(t.sub.tangent || '')}">
+        <label>FLY Racing products link</label><input id="e_fly" value="${esc(t.sub.fly || '')}" placeholder="${FLY_DEFAULT_URL}">` : ''}
       ${t.label === 'Sign-Ups' ? `<div class="sechead">Actions</div>
         <button class="btn alt slim" onclick="go('newEvent')">+ New Sign-Up Board</button>` : ''}
       ${t.label === 'Team Forms' ? `<div class="sechead">Actions</div>
@@ -3208,10 +3250,11 @@ async function saveTile() {
     ORDER: document.getElementById('e_order').value,
     VISIBILITY: document.getElementById('v_admin').classList.contains('on') ? 'admin' : 'public',
   };
-  if (document.getElementById('e_gear')) {
-    u.SUBLINK_GEAR = document.getElementById('e_gear').value.trim();
+  if (document.getElementById('e_jers')) {
     u.SUBLINK_JERSEYS = document.getElementById('e_jers').value.trim();
     u.SUBLINK_PLATES = document.getElementById('e_plat').value.trim();
+    u.SUBLINK_TANGENT = document.getElementById('e_tang').value.trim();
+    u.SUBLINK_FLY = document.getElementById('e_fly').value.trim();
   }
   try {
     msg('tileMsg', 'Saving…', 'ok');
@@ -4473,6 +4516,111 @@ async function orderXlsx() {
 function orderCsv() { return orderXlsx(); }
 
 /* ---- family side: invoices for team orders ---- */
+
+/* ============ FLY Racing order requests ============ */
+// Parents type their order, add up to 4 photos (resized on the phone), and
+// submit. The server saves it to Asana, emails Michelle and a copy to them.
+function flyUrl() {
+  const t = S.tiles.find(x => x.label === 'Gear Ordering') || { sub: {} };
+  return (t.sub.fly && t.sub.fly.startsWith('http')) ? t.sub.fly : FLY_DEFAULT_URL;
+}
+function openFlyOrder() {
+  S.fly = { text: '', photos: [], riderGid: '', sending: false, error: '', done: null };
+  if (!S.myRiders) loadMyRidersQuietly().then(() => { if (S.screen === 'flyOrder') render(); });
+  go('flyOrder');
+}
+function flyKeep() {
+  const t = document.getElementById('fly_text'); if (t) S.fly.text = t.value;
+  const r = document.getElementById('fly_rider'); if (r) S.fly.riderGid = r.value;
+}
+function shrinkPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 1400, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that photo.')); };
+    img.src = url;
+  });
+}
+async function flyAddPhotos(input) {
+  flyKeep();
+  const room = 4 - S.fly.photos.length;
+  const files = [...(input.files || [])].slice(0, room);
+  S.fly.error = (input.files || []).length > room ? 'Up to 4 photos per order.' : '';
+  for (const f of files) {
+    try { S.fly.photos.push(await shrinkPhoto(f)); } catch (e) { S.fly.error = e.message; }
+  }
+  render();
+}
+function flyRemovePhoto(i) { flyKeep(); S.fly.photos.splice(i, 1); render(); }
+async function submitFly() {
+  flyKeep();
+  const f = S.fly;
+  if (!f.text.trim() && !f.photos.length) { f.error = 'Add your order or a photo first.'; return render(); }
+  f.sending = true; f.error = ''; render();
+  try {
+    const r = await api('submitGearRequest', { vendor: 'fly', riderGid: f.riderGid, text: f.text,
+      photos: f.photos.map(data => ({ data })) });
+    const rider = (S.myRiders || []).find(x => x.gid === f.riderGid);
+    f.done = { ...r, who: rider ? rider.name.split(' ')[0] : (S.user.name || '').split(' ')[0],
+      lines: f.text.split('\n').filter(l => l.trim()).length, photos: f.photos.length,
+      when: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) };
+    f.sending = false;
+    S.screen = 'flyDone'; render();
+  } catch (e) { f.sending = false; f.error = e.message; render(); }
+}
+
+Object.assign(SCREENS, {
+  flyOrder: () => {
+    const f = S.fly || (S.fly = { text: '', photos: [], riderGid: '' });
+    const riders = S.myRiders || [];
+    if (!f.riderGid && riders.length) f.riderGid = riders[0].gid;
+    const opts = riders.map(r => `<option value="${esc(r.gid)}"${r.gid === f.riderGid ? ' selected' : ''}>${esc(r.name)}</option>`).join('')
+      + `<option value=""${riders.length && !f.riderGid ? ' selected' : ''}>Someone else (say who below)</option>`;
+    const thumbs = f.photos.map((p, i) => `<div class="fly-thumb" style="background-image:url('${p}')">
+      <button onclick="flyRemovePhoto(${i})" aria-label="Remove photo">×</button></div>`).join('');
+    return `<h2>FLY Racing Order</h2>
+      <p class="sub">35% off all items. Michelle places every FLY order at the team price.</p>
+      <button class="btn outline slim" style="margin-top:0" onclick="openExternal('${esc(flyUrl())}')">Browse FLY Racing Products ↗</button>
+      <label for="fly_rider">Who is it for?</label>
+      <select id="fly_rider" onchange="flyKeep()">${opts}</select>
+      <label for="fly_text">Your order</label>
+      <textarea id="fly_text" rows="6" maxlength="4000" placeholder="Item name, color, size, quantity. One item per line.">${esc(f.text)}</textarea>
+      <p class="sub" style="font-size:13.5px;margin:6px 0 0">Item name, color, size and quantity. Screenshots of the product page help.</p>
+      <label>Photos (up to 4)</label>
+      <div class="fly-photos">${thumbs}
+        ${f.photos.length < 4 ? `<label class="fly-add">+<input type="file" accept="image/*" multiple onchange="flyAddPhotos(this)"></label>` : ''}</div>
+      ${f.error ? `<div class="msg err" style="margin-top:14px">${esc(f.error)}</div>` : ''}
+      <button class="btn" style="margin-top:26px" ${f.sending ? 'disabled' : ''} onclick="submitFly()">${f.sending ? 'Sending…' : 'Submit Order'}</button>`;
+  },
+  flyDone: () => {
+    const d = (S.fly || {}).done || {};
+    return `<div style="text-align:center;padding-top:30px">
+        <div class="fly-check">✓</div>
+        <h2>Order sent</h2>
+        <p class="sub">Michelle has your FLY Racing order. She'll confirm the team price and send an invoice in the app once it's placed.${d.parentCopy ? ' A copy is in your email.' : ''}</p></div>
+      <div class="card flat"><div class="cname" style="font-size:15px">Your request</div>
+        <div class="cmeta">For ${esc(d.who || '')} · ${d.lines || 0} line${d.lines === 1 ? '' : 's'} · ${d.photos || 0} photo${d.photos === 1 ? '' : 's'} · sent ${esc(d.when || '')}</div></div>
+      <button class="btn alt slim" onclick="S.history = S.history.filter(x => x !== 'flyOrder'); go('gear', false)">Back to Gear</button>`;
+  },
+});
+
+// Admin home banner: new gear requests waiting on the Team Desk.
+async function loadGearRequestsQuietly() {
+  if (!S.isAdmin) return;
+  try {
+    const r = await api('adminGearRequests');
+    S.gearReq = { count: r.newCount || 0, deskUrl: r.deskUrl || '' };
+    if (S.screen === 'home') render();
+  } catch {}
+}
+
 async function loadMyInvoicesQuietly() {
   try {
     S.myInvoices = (await api('myInvoices')).invoices || [];
