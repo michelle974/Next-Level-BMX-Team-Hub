@@ -2498,7 +2498,8 @@ function raceInfoHtml(e) {
   const usa = st.data.source === 'usabmx';
   if (!days.length) {
     html += `<div class="ri-body"><p class="ri-note">${usa
-      ? 'Day-by-day schedule not added yet. Tap Race Flyer for times.'
+      ? (p.flyer ? 'Day-by-day schedule not added yet. Tap Race Flyer for times.'
+                 : 'Day-by-day schedule coming once USA BMX posts the race flyer.')
       : "The schedule isn't readable right now. Tap below for the full post."}</p></div>`;
   } else {
     const open = riOpenIndex(days);
@@ -2521,7 +2522,9 @@ function raceInfoHtml(e) {
   const who = contact.map(c => `${c.label}: ${c.value}`).join(' · ');
   html += `<div class="ri-foot">${addr ? esc(addr) + '<br>' : ''}${who ? esc(who) + '<br>' : ''}
     ${usa
-      ? `From the USA BMX race flyer · <a href="#" onclick="openExternal('${esc(p.flyer || p.url)}');return false">View flyer</a>`
+      ? (p.flyer || p.url
+          ? `From the USA BMX race flyer · <a href="#" onclick="openExternal('${esc(p.flyer || p.url)}');return false">${p.flyer ? 'View flyer' : 'View on USA BMX'}</a>`
+          : 'USA BMX National')
       : `From the Sunshine State BMX schedule · <a href="#" onclick="openExternal('${esc(p.url || 'https://www.sunshinestatebmx.com/schedule')}');return false">View full post</a>`}</div></div>`;
   return html;
 }
