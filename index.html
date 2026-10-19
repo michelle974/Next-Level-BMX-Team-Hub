@@ -466,7 +466,7 @@
     font-size: 12.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
     color: var(--muted); margin: 12px 0 6px;
   }
-  .ri-row { display: grid; grid-template-columns: 112px 1fr; gap: 10px; padding: 5px 0; font-size: 14.5px; line-height: 1.4; }
+  .ri-row { display: grid; grid-template-columns: 136px 1fr; gap: 10px; padding: 5px 0; font-size: 14.5px; line-height: 1.4; }
   .ri-row .ri-t { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .ri-line { padding: 5px 0; font-size: 14.5px; line-height: 1.45; }
   .ri-line .ri-l { font-weight: 700; }
@@ -474,6 +474,13 @@
   .ri-foot { font-size: 12.5px; color: var(--muted); padding: 10px 16px 12px; background: var(--tile); }
   .ri-foot a { color: var(--muted); }
   .ri-note { font-size: 14px; color: var(--muted); margin: 6px 0; }
+  .ri-notes { margin-top: 10px; font-size: 13.5px; }
+  .ri-notes > summary { cursor: pointer; font-weight: 800; color: var(--orange); list-style: none; }
+  .ri-notes > summary::-webkit-details-marker { display: none; }
+  .ri-notes > summary::after { content: ' ▸'; }
+  .ri-notes[open] > summary::after { content: ' ▾'; }
+  .ri-notes ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.45; }
+  .ri-notes li { margin: 3px 0; }
   .evt-desc { font-size: 15.5px; line-height: 1.5; color: var(--text); margin: 14px 0 4px; white-space: pre-wrap; }
 
   /* ---------- setup guide (plain accordion, scoped) ---------- */
@@ -2420,10 +2427,10 @@ function openScheduleDetail(id) {
   loadRaceInfo(id);
 }
 
-/* ---- race weekend details (Florida State Series posts on sunshinestatebmx.com) ---- */
-// Fetched once per event per session. The server matches the calendar event to
-// the series post by date, so national races and anything else off the state
-// series simply come back "not found" and show nothing.
+/* ---- race weekend details ---- */
+// Fetched once per event per session. State races come from the Sunshine State
+// BMX post; nationals (title has "National" or "Grands") come from the USA BMX
+// race flyer data in api/_nationals.js. Anything else comes back "not found".
 async function loadRaceInfo(eventId) {
   const e = findCalEvent(eventId);
   if (!e || isTrainingEvent(e)) return;
@@ -2433,7 +2440,7 @@ async function loadRaceInfo(eventId) {
   const start = ymd(e.allDay ? new Date(e.start + 'T00:00:00') : new Date(e.start));
   const end = ymd(evtLastDay(e));
   try {
-    const r = await fetch(`/api/raceinfo?start=${start}&end=${end}`);
+    const r = await fetch(`/api/raceinfo?start=${start}&end=${end}&title=${encodeURIComponent(e.title || '')}`);
     const json = await r.json();
     if (!r.ok) throw new Error(json.error || 'Could not load race details');
     S.raceInfo[eventId] = { data: json };
@@ -2452,7 +2459,9 @@ function riOpenIndex(days) {
   const wd = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
   const today = days.findIndex(d => d.heading.toLowerCase().startsWith(wd));
   const e = findCalEvent(S.calSelectedId);
-  const live = e && !evtIsPast(e) && new Date(e.allDay ? e.start + 'T00:00:00' : e.start) <= new Date();
+  // "Live" from 2 days before the first day, so a Thursday practice panel
+  // (nationals) opens on Thursday even when the calendar event starts Friday.
+  const live = e && !evtIsPast(e) && new Date(e.allDay ? e.start + 'T00:00:00' : e.start) - 2 * 86400000 <= Date.now();
   if (live && today >= 0) return today;
   const sat = days.findIndex(d => /^saturday/i.test(d.heading));
   return sat >= 0 ? sat : 0;
@@ -2476,11 +2485,20 @@ function raceInfoHtml(e) {
   }
   html += '<div class="ri-links">';
   if (p.preSign) html += `<button class="btn slim" onclick="openExternal('${esc(p.preSign)}')">Pre-Sign on USA BMX</button>`;
+  if (p.flyer) html += `<button class="btn outline slim" onclick="openExternal('${esc(p.flyer)}')">Race Flyer</button>`;
   if (p.hotels) html += `<button class="btn outline slim" onclick="openExternal('${esc(p.hotels)}')">Hotels</button>`;
-  html += '</div></div>';
+  html += '</div>';
+  if ((p.notes || []).length) {
+    html += '<details class="ri-notes"><summary>Good to know</summary><ul>' +
+      p.notes.map(n => `<li>${riText(n)}</li>`).join('') + '</ul></details>';
+  }
+  html += '</div>';
 
+  const usa = st.data.source === 'usabmx';
   if (!days.length) {
-    html += `<div class="ri-body"><p class="ri-note">The schedule isn't readable right now. Tap below for the full post.</p></div>`;
+    html += `<div class="ri-body"><p class="ri-note">${usa
+      ? 'Day-by-day schedule not added yet. Tap Race Flyer for times.'
+      : "The schedule isn't readable right now. Tap below for the full post."}</p></div>`;
   } else {
     const open = riOpenIndex(days);
     days.forEach((d, i) => {
@@ -2501,7 +2519,9 @@ function raceInfoHtml(e) {
   const addr = (p.address || []).join(', ');
   const who = contact.map(c => `${c.label}: ${c.value}`).join(' · ');
   html += `<div class="ri-foot">${addr ? esc(addr) + '<br>' : ''}${who ? esc(who) + '<br>' : ''}
-    From the Sunshine State BMX schedule · <a href="#" onclick="openExternal('${esc(p.url || 'https://www.sunshinestatebmx.com/schedule')}');return false">View full post</a></div></div>`;
+    ${usa
+      ? `From the USA BMX race flyer · <a href="#" onclick="openExternal('${esc(p.flyer || p.url)}');return false">View flyer</a>`
+      : `From the Sunshine State BMX schedule · <a href="#" onclick="openExternal('${esc(p.url || 'https://www.sunshinestatebmx.com/schedule')}');return false">View full post</a>`}</div></div>`;
   return html;
 }
 

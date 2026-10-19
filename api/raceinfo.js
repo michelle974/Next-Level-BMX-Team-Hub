@@ -1,8 +1,11 @@
 // /api/raceinfo.js
-// Race weekend details for the Florida State Series, read live from the
-// official Sunshine State BMX site (sunshinestatebmx.com, a Wix blog).
+// Race weekend details.
+//  - Florida State Series: read live from the official Sunshine State BMX site
+//    (sunshinestatebmx.com, a Wix blog).
+//  - USA BMX nationals: from the race flyer, kept in api/_nationals.js, with a
+//    live USA BMX fallback (venue, Pre-Sign, flyer) for nationals not added yet.
 //
-//   GET /api/raceinfo?start=YYYY-MM-DD&end=YYYY-MM-DD
+//   GET /api/raceinfo?start=YYYY-MM-DD&end=YYYY-MM-DD&title=<calendar title>
 //
 // 1. Reads the site's RSS feed to find the post whose dates overlap the
 //    calendar event (titles look like "Event 1 - October 16-18, 2026").
@@ -12,6 +15,8 @@
 // Nothing is stored. When the series updates a post (a TBA gets filled in),
 // the Team Hub shows the change within the cache window below.
 // No env vars needed.
+
+import { NATIONALS } from './_nationals.js';
 
 const SITE = 'https://www.sunshinestatebmx.com';
 const FEED = SITE + '/blog-feed.xml';
@@ -215,6 +220,67 @@ function parsePost(html, title, url) {
 
 /* ---------------- handler ---------------- */
 
+/* ---------------- USA BMX nationals ---------------- */
+
+// 1. Curated weekend from the race flyer (api/_nationals.js).
+function matchNational(want) {
+  let best = null, bestOv = 0;
+  for (const n of NATIONALS) {
+    const ov = overlapDays(n, want);
+    if (ov > bestOv) { best = n; bestOv = ov; }
+  }
+  return best;
+}
+
+// 2. Any national not curated yet: basic card from the USA BMX event list
+//    (venue, Pre-Sign, flyer). The list API caps page_limit at 5.
+const USABMX = 'https://www.usabmx.com';
+async function liveNational(want) {
+  for (let page = 1; page <= 4; page++) {
+    const url = `${USABMX}/api/backend/events/event-list?filter_list=upcoming&event_type=NATIONAL&page_number=${page}&page_limit=5`;
+    const hit = cache.get(url);
+    let json;
+    if (hit && Date.now() - hit.at < TTL_MS) json = hit.body;
+    else {
+      const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
+      if (!r.ok) return null;
+      json = await r.json();
+      cache.set(url, { at: Date.now(), body: json });
+    }
+    const list = json?.data || [];
+    for (const ev of list) {
+      const range = { start: String(ev.begins_on).slice(0, 10), end: String(ev.ends_on || ev.begins_on).slice(0, 10) };
+      if (!overlapDays(range, want)) continue;
+      const temp = ev.is_temporary_track;
+      const track = temp ? ev.temporary_track_name : ev.track_name;
+      const city = temp ? ev.temporary_track_city : ev.track_city;
+      const st = temp ? ev.temporary_track_state : ev.track_state_abbreviation;
+      return {
+        range,
+        post: {
+          title: ev.name, series: 'USA BMX National',
+          venue: [track, [city, st].filter(Boolean).join(', ')].filter(Boolean).join(' · '),
+          url: `${USABMX}/events/${ev.id}`, preSign: `${USABMX}/events/${ev.id}`, hotels: '',
+          flyer: ev.race_flyer ? `https://admin.usabmx.com/assets/${ev.race_flyer}` : '',
+          address: [], info: [], notes: [], days: [],
+        },
+      };
+    }
+    if (list.length < 5) break;
+  }
+  return null;
+}
+
+async function findNational(want) {
+  const n = matchNational(want);
+  if (n) return { found: true, source: 'usabmx', post: n.post, range: { start: n.start, end: n.end }, warning: '' };
+  try {
+    const live = await liveNational(want);
+    if (live) return { found: true, source: 'usabmx', ...live, warning: 'Schedule not added yet. See the race flyer.' };
+  } catch { /* USA BMX unreachable: no card */ }
+  return null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   try {
@@ -223,9 +289,22 @@ export default async function handler(req, res) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
       return res.status(400).json({ error: 'start and end must be YYYY-MM-DD' });
     }
+    const want = { start, end };
+    const title = String(req.query?.title || '');
+    // Nationals and the Grands come from USA BMX; everything else tries the
+    // Florida State Series first.
+    if (/national|grands/i.test(title)) {
+      const nat = await findNational(want);
+      return res.status(200).json(nat || { found: false });
+    }
     const items = parseFeed(await getText(FEED));
-    const post = matchPost(items, { start, end });
-    if (!post) return res.status(200).json({ found: false });
+    const post = matchPost(items, want);
+    if (!post) {
+      const nat = matchNational(want);
+      return res.status(200).json(nat && !title
+        ? { found: true, source: 'usabmx', post: nat.post, range: { start: nat.start, end: nat.end }, warning: '' }
+        : { found: false });
+    }
 
     let details = null, warning = '';
     try {
@@ -236,7 +315,7 @@ export default async function handler(req, res) {
     }
     return res.status(200).json({
       found: true,
-      source: SITE,
+      source: 'sunshine',
       post: details || { title: post.title, url: post.link, days: [], info: [], address: [] },
       range: post.range,
       warning,
@@ -247,4 +326,4 @@ export default async function handler(req, res) {
 }
 
 // Exposed for local tests.
-export const _test = { htmlToLines, parseFeed, matchPost, parsePost, titleRange, TIME_RE, DAY_RE };
+export const _test = { htmlToLines, parseFeed, matchPost, parsePost, titleRange, TIME_RE, DAY_RE, matchNational, findNational };
