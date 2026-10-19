@@ -37,7 +37,7 @@ const rows = list => list.map(([time, text]) => ({ time, text }));
 export const NATIONALS = [
   /* ---------------- Gator Nationals ---------------- */
   {
-    start: '2026-10-22', end: '2026-10-25', // Thursday practice + Fri-Sun racing
+    start: '2026-10-21', end: '2026-10-25', // Wed clinic, Thu practice + Fri-Sun racing
     post: {
       title: 'Gator Nationals',
       series: 'USA BMX National · Races 1-3',
@@ -55,8 +55,18 @@ export const NATIONALS = [
       notes: [TRANSPONDERS, FIRST_NATIONAL, PREREG, 'Vendors: Full Tilt, J & R Bicycles, Hellfire BMX, Aker Brand & Glitter Lens'],
       days: [
         {
-          heading: 'Thursday, October 22', note: 'Practice by age group',
-          blocks: [{ title: 'Practice Schedule', items: rows([
+          heading: 'Wednesday, October 21', note: 'Beginner Clinic',
+          blocks: [{ title: '', items: rows([['5:00pm - 7:00pm', 'Beginner Clinic']]) }],
+        },
+        {
+          heading: 'Thursday, October 22', note: 'Elite Hill, Pro Clinic and practice by age',
+          blocks: [
+            { title: '', items: rows([
+              ['10:00am - 1:00pm', 'Elite Hill practice'],
+              ['1:30pm - 3:30pm', 'Pro Clinic'],
+              ['5:00pm - 8:00pm', 'Practice by age group'],
+            ]) },
+            { title: 'Practice by Age', items: rows([
             ['5:00pm - 5:45pm', '12 & Under'],
             ['5:45pm - 6:30pm', '13 & Over'],
             ['6:30pm - 7:15pm', '12 & Under'],

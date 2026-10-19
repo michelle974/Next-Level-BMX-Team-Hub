@@ -2429,8 +2429,9 @@ function openScheduleDetail(id) {
 
 /* ---- race weekend details ---- */
 // Fetched once per event per session. State races come from the Sunshine State
-// BMX post; nationals (title has "National" or "Grands") come from the USA BMX
-// race flyer data in api/_nationals.js. Anything else comes back "not found".
+// BMX post; nationals (title has "National" or "Grands") come from the
+// "NATIONAL: <race>" tasks in the Asana Config section. Anything else comes
+// back "not found".
 async function loadRaceInfo(eventId) {
   const e = findCalEvent(eventId);
   if (!e || isTrainingEvent(e)) return;

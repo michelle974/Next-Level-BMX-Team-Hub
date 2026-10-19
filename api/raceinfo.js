@@ -2,8 +2,9 @@
 // Race weekend details.
 //  - Florida State Series: read live from the official Sunshine State BMX site
 //    (sunshinestatebmx.com, a Wix blog).
-//  - USA BMX nationals: from the race flyer, kept in api/_nationals.js, with a
-//    live USA BMX fallback (venue, Pre-Sign, flyer) for nationals not added yet.
+//  - USA BMX nationals: from "NATIONAL: <race>" tasks in the Team Hub's Asana
+//    Config section (edit in Asana, no redeploy), with a live USA BMX fallback
+//    (venue, Pre-Sign, flyer) for nationals that don't have a task yet.
 //
 //   GET /api/raceinfo?start=YYYY-MM-DD&end=YYYY-MM-DD&title=<calendar title>
 //
@@ -16,7 +17,7 @@
 // the Team Hub shows the change within the cache window below.
 // No env vars needed.
 
-import { NATIONALS } from './_nationals.js';
+import { parseNationalTask } from './_nationalnotes.js';
 
 const SITE = 'https://www.sunshinestatebmx.com';
 const FEED = SITE + '/blog-feed.xml';
@@ -222,10 +223,31 @@ function parsePost(html, title, url) {
 
 /* ---------------- USA BMX nationals ---------------- */
 
-// 1. Curated weekend from the race flyer (api/_nationals.js).
-function matchNational(want) {
+// 1. Weekend details kept in Asana: one task per national in the Team Hub's
+//    Config section, named "NATIONAL: <race>". Format in api/_nationalnotes.js.
+//    Cached 60 seconds so an Asana edit shows up within a minute.
+const ASANA_TOKEN = process.env.ASANA_TOKEN;
+const SEC_CONFIG = process.env.SEC_CONFIG || '1217629408316937';
+const NAT_TTL_MS = 60 * 1000;
+let natCache = { at: 0, list: [] };
+async function loadNationals() {
+  if (Date.now() - natCache.at < NAT_TTL_MS) return natCache.list;
+  if (!ASANA_TOKEN) return [];
+  const r = await fetch(`https://app.asana.com/api/1.0/sections/${SEC_CONFIG}/tasks?opt_fields=name,notes,completed&limit=100`,
+    { headers: { Authorization: `Bearer ${ASANA_TOKEN}` } });
+  if (!r.ok) return natCache.list;           // keep the last good copy
+  const json = await r.json();
+  const list = (json.data || [])
+    .filter(t => /^NATIONAL:/i.test(t.name || '') && !t.completed)
+    .map(t => parseNationalTask(t.name, t.notes))
+    .filter(Boolean);
+  natCache = { at: Date.now(), list };
+  return list;
+}
+
+function matchNational(nationals, want) {
   let best = null, bestOv = 0;
-  for (const n of NATIONALS) {
+  for (const n of nationals) {
     const ov = overlapDays(n, want);
     if (ov > bestOv) { best = n; bestOv = ov; }
   }
@@ -272,7 +294,8 @@ async function liveNational(want) {
 }
 
 async function findNational(want) {
-  const n = matchNational(want);
+  let n = null;
+  try { n = matchNational(await loadNationals(), want); } catch { /* Asana down: try USA BMX */ }
   if (n) return { found: true, source: 'usabmx', post: n.post, range: { start: n.start, end: n.end }, warning: '' };
   try {
     const live = await liveNational(want);
@@ -299,12 +322,7 @@ export default async function handler(req, res) {
     }
     const items = parseFeed(await getText(FEED));
     const post = matchPost(items, want);
-    if (!post) {
-      const nat = matchNational(want);
-      return res.status(200).json(nat && !title
-        ? { found: true, source: 'usabmx', post: nat.post, range: { start: nat.start, end: nat.end }, warning: '' }
-        : { found: false });
-    }
+    if (!post) return res.status(200).json({ found: false });
 
     let details = null, warning = '';
     try {
