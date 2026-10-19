@@ -3268,18 +3268,9 @@ const RD_PTS = {
   X: [0, 40, 35, 30, 25, 20, 15, 10, 5],
   GX: [0, 45, 40, 35, 30, 25, 20, 15, 10],
 };
-// Pro-Am (sunshinestatebmx.com): SCR at regular state races, SCF at State Champs.
-// Rider count is added the same as Open; a Pro-Am DNQ still scores.
-const RD_PA = {
-  SCR: { pts: [0, 40, 38, 36, 34, 32, 30, 28, 26], dnq: 20 },
-  SCF: { pts: [0, 60, 57, 54, 51, 48, 45, 42, 39], dnq: 30 },
-};
-const rdPaSet = () => {
-  const d = S.rd.data || {};
-  return /\bSCF\b|state\s*champ/i.test(`${d.eventName || ''} ${d.day?.race || ''}`) ? RD_PA.SCF : RD_PA.SCR;
-};
-const rdTable = lvl => (lvl === 'PA' ? rdPaSet().pts : RD_PTS[lvl]);
-const rdDnqPts = lvl => (lvl === 'PA' ? rdPaSet().dnq : 0);
+// Pro-Am scores like any Open: rider count + the Expert/Cruiser/Open column. DNQ scores 0.
+const rdTable = lvl => RD_PTS[lvl];
+const rdDnqPts = () => 0;
 const rdKind = k => /M$/.test(k) ? 'main' : /S$/.test(k) ? 'semi' : /Q$/.test(k) ? 'qtr' : 'moto';
 const rdBase = k => k.replace(/[QSM]$/, '');
 const rdIsT = o => o === 'T' || o === 'T1' || o === 'T2';
@@ -3719,7 +3710,6 @@ function rdBoardHtml() {
 
 /* ---- ADMIN: team sheets ---- */
 function rdLevel(type, code) {
-  if (/pro-?am/i.test(String(code || ''))) return 'PA';
   if (type !== 'class') return 'X';
   const c = String(code || '').toLowerCase();
   if (/gx$/.test(c)) return 'GX';
@@ -3934,11 +3924,7 @@ function rdPredict(id, type) {
   const mv = rdMoveUp(id, type, rows);
   const code = rdCurrentCode(id, type);
   const rr = (d.roster || []).find(r => r.id === id);
-  // Before motos post, Open has no class code yet: a rider whose latest Open
-  // race was Pro-Am is predicted on the Pro-Am table.
-  const raw = (d.history || {})[id]?.[type] || [];
-  const lastCode = raw.length ? raw[raw.length - 1][2] : '';
-  let lvl = rdLevel(type, code || (/pro-?am/i.test(lastCode) ? lastCode : ''));
+  let lvl = rdLevel(type, code);
   if (!lvl) {
     const p = (rr?.proficiency || '').toLowerCase();
     lvl = /girl/.test(p) ? 'GX' : /nov/.test(p) ? 'N' : /int/.test(p) ? 'I' : 'X';
