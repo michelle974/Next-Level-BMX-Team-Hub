@@ -4519,7 +4519,7 @@ function orderCsv() { return orderXlsx(); }
 
 /* ============ FLY Racing order requests ============ */
 // Parents type their order, add up to 4 photos (resized on the phone), and
-// submit. The server saves it to Asana, emails Michelle and a copy to them.
+// submit. The server saves it to Asana; Michelle sees it on her banner and the Team Desk.
 function flyUrl() {
   const t = S.tiles.find(x => x.label === 'Gear Ordering') || { sub: {} };
   return (t.sub.fly && t.sub.fly.startsWith('http')) ? t.sub.fly : FLY_DEFAULT_URL;
@@ -4604,7 +4604,7 @@ Object.assign(SCREENS, {
     return `<div style="text-align:center;padding-top:30px">
         <div class="fly-check">✓</div>
         <h2>Order sent</h2>
-        <p class="sub">Michelle has your FLY Racing order. She'll confirm the team price and send an invoice in the app once it's placed.${d.parentCopy ? ' A copy is in your email.' : ''}</p></div>
+        <p class="sub">Michelle has your FLY Racing order. She'll confirm the team price and send an invoice in the app once it's placed.</p></div>
       <div class="card flat"><div class="cname" style="font-size:15px">Your request</div>
         <div class="cmeta">For ${esc(d.who || '')} · ${d.lines || 0} line${d.lines === 1 ? '' : 's'} · ${d.photos || 0} photo${d.photos === 1 ? '' : 's'} · sent ${esc(d.when || '')}</div></div>
       <button class="btn alt slim" onclick="S.history = S.history.filter(x => x !== 'flyOrder'); go('gear', false)">Back to Gear</button>`;

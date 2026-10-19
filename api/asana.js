@@ -4,7 +4,6 @@
 
 import crypto from 'crypto';
 import { DEFAULT_CLASSES } from './_classes.js';
-import nodemailer from 'nodemailer';
 
 const ASANA = 'https://app.asana.com/api/1.0';
 const TOKEN = process.env.ASANA_TOKEN;
@@ -364,23 +363,23 @@ const MAX_PHOTOS = 4;
 const MAX_PHOTO_BYTES = 1.5 * 1024 * 1024;
 const DEFAULT_DESK_URL = 'https://claude.ai/artifact/8Wrx6qCjdtqYkkq8MK5QZU';
 
-// Requests collect on one open order per vendor, marked REQUEST_TARGET: true.
-// Once Michelle places it and archives it, the next request starts a new one
-// ("FLY Racing Order 2", "FLY Racing Order 3", ...), so a placed order never
-// picks up new lines.
+// FLY orders are placed as one group order. Every request adds to the newest
+// open (not archived) order for that vendor. A new order starts only when none
+// is open: after Michelle archives the last one, or when she starts a new one
+// herself on the Team Desk (the newest open one wins).
 async function findOrCreateOrder(sectionGid, tasks, orderName, vendor, pct) {
-  const orders = tasks.filter(t => t.name.startsWith('ORDER:'));
-  const open = orders.find(t => String(t.fields.REQUEST_TARGET).toLowerCase() === 'true'
+  const key = vendor.split(' ')[0].toLowerCase();
+  const open = tasks.filter(t => t.name.startsWith('ORDER:')
     && String(t.fields.ARCHIVED).toLowerCase() !== 'true'
-    && (t.fields.VENDOR || '').toLowerCase() === vendor.toLowerCase());
-  if (open) return open.gid;
-  const same = orders.filter(t => new RegExp(`^ORDER:\\s*${orderName}( Order)?( \\d+)?$`, 'i').test(t.name.trim())).length;
+    && ((t.fields.VENDOR || '').toLowerCase().startsWith(key) || t.name.toLowerCase().includes(key)))
+    .sort((x, y) => String(y.fields.CREATED || '').localeCompare(String(x.fields.CREATED || '')) || y.gid.localeCompare(x.gid));
+  if (open.length) return open[0].gid;
+  const same = tasks.filter(t => t.name.startsWith('ORDER:') && t.name.toLowerCase().includes(key)).length;
   const name = `${orderName} Order${same ? ` ${same + 1}` : ''}`;
   return createInSection(sectionGid, `ORDER: ${name}`, {
     ORDER_NAME: name, VENDOR: vendor, PAY_URL: DEFAULT_PAY_URL,
     ITEMS_JSON: '[]', CREATED: new Date().toISOString().slice(0, 10),
     ARCHIVED: 'false', FAMILY_STATUS_JSON: '{}', DISCOUNT_PCT: pct ? String(pct) : undefined,
-    REQUEST_TARGET: 'true',
   });
 }
 
@@ -393,39 +392,6 @@ async function attachToTask(taskGid, name, buf, type) {
   });
   if (!res.ok) throw new Error(`Photo upload failed (${res.status})`);
   return (await res.json()).data?.gid;
-}
-
-// Gmail through an app password on the team account (Vercel env vars).
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD;
-let mailer = null;
-function getMailer() {
-  if (!GMAIL_USER || !GMAIL_PASS) return null;
-  if (!mailer) mailer = nodemailer.createTransport({
-    service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_PASS.replace(/\s+/g, '') },
-  });
-  return mailer;
-}
-
-const escHtml = v => String(v ?? '').replace(/[&<>"']/g, c =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-function requestEmailHtml({ heading, intro, vendor, family, who, byName, when, text, photoCount, footer }) {
-  const row = (k, v) => `<tr><td style="padding:4px 14px 4px 0;color:#666;font-size:14px">${k}</td>
-    <td style="padding:4px 0;font-size:14px;font-weight:600">${escHtml(v)}</td></tr>`;
-  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;color:#111">
-  <div style="background:#000;padding:16px 20px;border-bottom:4px solid #38f100">
-    <div style="color:#38f100;font-size:20px;font-weight:800;letter-spacing:.02em">NEXT LEVEL BMX</div>
-    <div style="color:#fff;font-size:14px;margin-top:2px">${escHtml(heading)}</div></div>
-  <div style="padding:20px">
-    <p style="font-size:15px;margin:0 0 16px">${intro}</p>
-    <table style="border-collapse:collapse;margin-bottom:16px">
-      ${row('Vendor', vendor)}${row('Family', family)}${row('For', who)}${row('Sent by', byName)}${row('Sent', when)}
-      ${row('Photos', photoCount ? `${photoCount} attached` : 'None')}</table>
-    <div style="font-size:13px;font-weight:800;color:#ff5500;letter-spacing:.06em;margin-bottom:6px">ORDER</div>
-    <div style="white-space:pre-wrap;font-size:15px;line-height:1.5;background:#fff4ed;border-left:4px solid #ff5500;padding:12px 14px;border-radius:6px">${escHtml(text)}</div>
-    ${footer ? `<p style="font-size:13px;color:#666;margin-top:18px">${footer}</p>` : ''}
-  </div></div>`;
 }
 
 /* ---------- zeffy ---------- */
@@ -1234,6 +1200,7 @@ export default async function handler(req, res) {
 
 
       // A family sends a gear order (text + photos) for Michelle to place.
+      // No email alert: Michelle sees it on the Hub banner and the Team Desk.
       case 'submitGearRequest': {
         const { gid, session, vendor, riderGid, text, photos } = body;
         if (!verifySession(gid, session)) return res.status(401).json({ error: 'Session invalid.' });
@@ -1243,8 +1210,8 @@ export default async function handler(req, res) {
         const pics = (Array.isArray(photos) ? photos : []).slice(0, MAX_PHOTOS);
         if (!orderText && !pics.length) return res.status(400).json({ error: 'Add your order or a photo first.' });
 
-        const [riders, parents, cfgPack, sec] = await Promise.all([
-          listSection(SECTIONS.riders), listSection(SECTIONS.parents), getConfig(), ordersSection(),
+        const [riders, parents, sec] = await Promise.all([
+          listSection(SECTIONS.riders), listSection(SECTIONS.parents), ordersSection(),
         ]);
         const all = [...riders, ...parents];
         const me = all.find(t => t.gid === gid);
@@ -1271,7 +1238,7 @@ export default async function handler(req, res) {
           PHOTOS: String(pics.length), TEXT_JSON: JSON.stringify(orderText),
         });
 
-        // Photos: decode, size-check, attach to the request task, keep for email.
+        // Photos: decode, size-check, attach to the request task.
         const files = [];
         for (let i = 0; i < pics.length; i++) {
           const m = String(pics[i]?.data || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
@@ -1286,42 +1253,7 @@ export default async function handler(req, res) {
           try { await attachToTask(reqGid, f.filename, f.content, f.contentType); } catch { photoErrors++; }
         }
 
-        // Emails: never block the request on mail trouble.
-        const mail = getMailer();
-        const notify = (cfgPack.cfg.ORDER_NOTIFY_EMAIL || GMAIL_USER || '').trim();
-        const deskUrl = (cfgPack.cfg.TEAM_DESK_URL || DEFAULT_DESK_URL).trim();
-        const info = { vendor: v.name, family: `${famLast} family`, who: rider ? rider.name : me.name,
-          byName: me.name, when, text: orderText || '(photos only)', photoCount: files.length };
-        let emailed = false, parentCopy = false;
-        if (mail && notify) {
-          try {
-            await mail.sendMail({
-              from: `"Next Level BMX Team Hub" <${GMAIL_USER}>`, to: notify,
-              replyTo: me.fields.EMAIL || undefined,
-              subject: `New ${v.name} Order · ${famLast} family · for ${info.who.split(' ')[0]}`,
-              html: requestEmailHtml({ ...info, heading: `New ${v.name} order request`,
-                intro: `${escHtml(me.name)} sent a ${escHtml(v.name)} order through the Team Hub. Reply to this email to reach them.`,
-                footer: `Saved to the Orders section in Asana${deskUrl ? ` · <a href="${escHtml(deskUrl)}">Open the Team Desk</a>` : ''}.` }),
-              attachments: files,
-            });
-            emailed = true;
-          } catch (e) { console.error('notify email failed', e.message); }
-          const parentEmail = (me.fields.EMAIL || '').trim();
-          if (parentEmail && parentEmail.toLowerCase() !== notify.toLowerCase()) {
-            try {
-              await mail.sendMail({
-                from: `"Next Level BMX" <${GMAIL_USER}>`, to: parentEmail, replyTo: notify,
-                subject: `We got your ${v.name} order`,
-                html: requestEmailHtml({ ...info, heading: `Your ${v.name} order`,
-                  intro: `Thanks! Michelle has your ${escHtml(v.name)} order (${escHtml(v.discount)} at the team price). She will confirm and send an invoice in the Team Hub once it's placed. Reply to this email with any changes.` }),
-                attachments: files,
-              });
-              parentCopy = true;
-            } catch (e) { console.error('parent copy failed', e.message); }
-          }
-        }
-        if (emailed) await patchTask(reqGid, { EMAILED: 'true' }).catch(() => {});
-        return res.json({ ok: true, requestGid: reqGid, emailed, parentCopy, photos: files.length - photoErrors });
+        return res.json({ ok: true, requestGid: reqGid, photos: files.length - photoErrors });
       }
 
       // Admin: open gear requests, for the home banner.
