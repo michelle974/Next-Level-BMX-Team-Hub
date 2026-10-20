@@ -53,7 +53,7 @@ export default async function handler(req, res) {
       }));
 
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ events });
+    res.status(200).json({ events, calendarId: CAL_ID });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

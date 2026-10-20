@@ -439,6 +439,15 @@
   }
   .evt-card .evt-title { font-size: 16.5px; font-weight: 800; }
   .evt-card .evt-time { font-size: 13.5px; opacity: .92; margin-top: 3px; }
+  /* subscribe to team calendar */
+  .sub-cal { border: 2px solid var(--line); border-radius: 14px; background: #fff; padding: 16px; margin: 0 0 16px; }
+  .sub-cal .sc-intro { font-size: 14.5px; color: var(--muted); line-height: 1.45; margin: 0 0 4px; }
+  .sub-cal .sc-opt { border-top: 1px solid var(--line); padding: 14px 0 2px; margin-top: 12px; }
+  .sub-cal .sc-name { font-size: 16px; font-weight: 800; }
+  .sub-cal .sc-tag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .04em; background: var(--black); color: var(--green); border-radius: 20px; padding: 3px 9px; margin-left: 8px; vertical-align: middle; }
+  .sub-cal .sc-how { font-size: 13.5px; color: var(--muted); line-height: 1.45; margin-top: 4px; }
+  .sub-cal .btn { margin-top: 10px; }
+  .sub-cal .sc-msg { font-size: 13.5px; font-weight: 700; color: #2a7000; margin-top: 8px; min-height: 1em; }
   .evt-detail-band { height: 10px; border-radius: 6px; margin-bottom: 18px; }
   /* race weekend details (from sunshinestatebmx.com) */
   .ri-card { border: 1px solid var(--line); border-radius: 14px; background: #fff; overflow: hidden; margin-top: 4px; }
@@ -733,6 +742,7 @@ const S = {
   events: null, eventDetail: null, myRiders: null,
   calEvents: null, calError: null, calSelectedId: null,
   calPast: null, calPastError: null, calShowPast: false,
+  calId: 'nextlevelbmx239@gmail.com', calSubOpen: false,
   suBoards: null, suShowPast: false,
   rsvpData: null, rsvpRiders: null,
   raceInfo: {},
@@ -963,6 +973,68 @@ function flyCard() {
     <div class="cname">FLY Racing<span class="pill deal">35% OFF</span></div>
     <div class="cmeta">Browse the catalog and send your order. The team gets 35% off all items.</div>
     <div class="cnote">Orders go through Michelle. Tap to browse and send your order.</div></div>`;
+}
+/* ---- subscribe to the team calendar ----
+   The team Google Calendar is public (the Schedule reads it with an API key),
+   so its public iCal feed works in Apple Calendar, Google Calendar and Outlook.
+   Subscribing keeps every event and every change in sync on the parent's phone. */
+function calIcsUrl() {
+  return 'https://calendar.google.com/calendar/ical/' + encodeURIComponent(S.calId) + '/public/basic.ics';
+}
+function calDevice() {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
+  if (/Android/.test(ua)) return 'android';
+  if (/Macintosh/.test(ua)) return 'mac';
+  return 'other';
+}
+function toggleSubscribe() { S.calSubOpen = !S.calSubOpen; render(); }
+function subscribeApple() {
+  // webcal:// makes iPhone, iPad and Mac show the Subscribe prompt in Apple Calendar
+  window.location.href = calIcsUrl().replace(/^https:\/\//, 'webcal://');
+}
+function subscribeGoogle() {
+  openOutside('https://calendar.google.com/calendar/u/0/r?cid=' + encodeURIComponent(S.calId));
+}
+async function copyCalLink() {
+  const url = calIcsUrl();
+  const el = document.getElementById('scMsg');
+  try {
+    await navigator.clipboard.writeText(url);
+    if (el) el.textContent = 'Link copied. Paste it into your calendar app.';
+  } catch (e) {
+    window.prompt('Copy this calendar link:', url);
+  }
+}
+function subscribeBlock() {
+  if (!S.calSubOpen) {
+    return `<button class="btn outline slim" style="margin:0 0 16px" onclick="toggleSubscribe()">\u{1F4C5} Subscribe to Team Calendar</button>`;
+  }
+  const dev = calDevice();
+  const tag = '<span class="sc-tag">THIS DEVICE</span>';
+  const apple = `<div class="sc-opt">
+      <div class="sc-name">iPhone, iPad or Mac${dev === 'ios' || dev === 'mac' ? tag : ''}</div>
+      <div class="sc-how">Uses Apple Calendar. Tap the button, then tap <b>Subscribe</b> and <b>Done</b>.</div>
+      <button class="btn slim" onclick="subscribeApple()">Add to Apple Calendar</button>
+    </div>`;
+  const google = `<div class="sc-opt">
+      <div class="sc-name">Google Calendar${dev === 'android' ? tag : ''}</div>
+      <div class="sc-how">Opens Google Calendar. Tap <b>Add</b> when it asks. Easiest on a computer; on an Android phone it then shows up in the Google Calendar app (if it doesn't, open the app's menu and tick <b>Next Level BMX</b>).</div>
+      <button class="btn slim" onclick="subscribeGoogle()">Add to Google Calendar</button>
+    </div>`;
+  const other = `<div class="sc-opt">
+      <div class="sc-name">Outlook or another app</div>
+      <div class="sc-how">Copy the link, then in your calendar app choose <b>Add calendar</b> and <b>From URL</b> (or <b>Subscribe from web</b>) and paste it.</div>
+      <button class="btn alt slim" onclick="copyCalLink()">Copy Calendar Link</button>
+      <div class="sc-msg" id="scMsg"></div>
+    </div>`;
+  const order = dev === 'android' ? [google, apple, other] : [apple, google, other];
+  return `<div class="sub-cal">
+    <div class="sc-name">Subscribe to Team Calendar</div>
+    <p class="sc-intro">Every race, training and team event lands in your own calendar, and any changes update on their own. You only do this once.</p>
+    ${order.join('')}
+    <button class="linkbtn" style="margin-top:8px" onclick="toggleSubscribe()">Close</button>
+  </div>`;
 }
 function openExternal(url) {
   if (isStandalone()) window.location.href = url;
@@ -1497,7 +1569,7 @@ const SCREENS = {
     }
     const list = (past ? S.calPast : S.calEvents).filter(e => evtIsPast(e) === past);
     if (past) list.sort((a, b) => evtGroupDate(b) - evtGroupDate(a));
-    let html = `<h2>${past ? 'Past Events' : 'Schedule'}</h2>${toggle}`;
+    let html = `<h2>${past ? 'Past Events' : 'Schedule'}</h2>${toggle}${past ? '' : subscribeBlock()}`;
     if (!list.length) return html + `<div class="empty">${
       past ? 'No past events in the last 12 months.' : 'No upcoming events.'}</div>`;
     let lastKey = null;
@@ -2412,6 +2484,7 @@ async function openSchedule() {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Failed to load calendar');
     S.calEvents = data.events || [];
+    if (data.calendarId) S.calId = data.calendarId;
   } catch (e) {
     S.calEvents = null;
     S.calError = e.message;
