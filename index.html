@@ -3441,8 +3441,16 @@ const RD_PTS = {
   X: [0, 40, 35, 30, 25, 20, 15, 10, 5],
   GX: [0, 45, 40, 35, 30, 25, 20, 15, 10],
 };
+// National Amateur Points Table: one point per rider in the class + finish points.
+// Girl Expert, Cruiser and Open use the Expert column.
+const RD_NAT_PTS = {
+  N: [0, 60, 50, 40, 30, 20, 10, 8, 5],
+  I: [0, 120, 100, 80, 60, 40, 20, 15, 10],
+  X: [0, 240, 200, 160, 120, 80, 40, 30, 20],
+};
+RD_NAT_PTS.GX = RD_NAT_PTS.X;
 // Pro-Am scores like any Open: rider count + the Expert/Cruiser/Open column. DNQ scores 0.
-const rdTable = lvl => RD_PTS[lvl];
+const rdTable = lvl => (S.rd?.data?.day?.national ? RD_NAT_PTS : RD_PTS)[lvl];
 const rdDnqPts = () => 0;
 const rdKind = k => /M$/.test(k) ? 'main' : /S$/.test(k) ? 'semi' : /Q$/.test(k) ? 'qtr' : 'moto';
 const rdBase = k => k.replace(/[QSM]$/, '');
