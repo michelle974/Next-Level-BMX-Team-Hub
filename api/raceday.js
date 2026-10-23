@@ -14,12 +14,19 @@ const PROJECT_GID = process.env.HUB_PROJECT_GID || '1217616477503428';
 const SEC_RIDERS = process.env.SEC_RIDERS || '1217616432345566';
 const SEC_PARENTS = process.env.SEC_PARENTS || '1217629407873450';
 const FEED_URL = process.env.RACEDAY_FEED_URL || 'https://motoboards.usabmx.com/events/track_1968.json';
+const SEC_RSVPS = process.env.SEC_RSVPS || '1218431788865096';
+const NAT_FEED = n => `https://motoboards.usabmx.com/events/track_${n}.json`;
+const ACTIVE_EVENTS_URL = 'https://motoboards.usabmx.com/active_events.json';
 const RD_SECTION_NAME = 'Race Day';
 const LOG_PREFIX = 'RD1 ';
 
-/* State series race days. Orlando State Champs is one day only. */
+/* State series race days. Orlando State Champs is one day only.
+   Nationals race Friday, Saturday and Sunday. `match` finds the national's live
+   motoboard (USA BMX numbers nationals 9000+) and its RSVP event by name. */
 const SCHEDULE = [
   { race: 'OLDSMAR', sat: '2026-10-17', sun: '2026-10-18' },
+  { race: 'GATOR NATIONALS', fri: '2026-10-23', sat: '2026-10-24', sun: '2026-10-25', national: true, match: 'gator|oldsmar' },
+  { race: 'SUNSHINE STATE NATIONALS', fri: '2027-01-15', sat: '2027-01-16', sun: '2027-01-17', national: true, match: 'sunshine|okeeheelee' },
   { race: 'DAYTONA', sat: '2026-11-14', sun: '2026-11-15' },
   { race: 'TAMPA', sat: '2027-01-09', sun: '2027-01-10' },
   { race: 'OKEEHEELEE', sat: '2027-02-06', sun: '2027-02-07' },
@@ -38,13 +45,17 @@ const HISTORY_2026 = {"1217688662198033":{"class":[[18,0,"8i"],[15,0,"8i"],[16,0
 // This season's race days that Michelle finalized on the Team Sheets page.
 // Only finalized scores count, so predictions match what she signed off on.
 // Only days before the one being viewed count (all days when testing).
+// State days and national days build separate histories: national fields are
+// bigger, so they never feed state predictions or the IMPROVED box.
 function seasonHistory(dayTasks, skipKey) {
   const rows = {}, days = [];
   const order = allDays().map(d => d.key);
   const cur = order.indexOf(skipKey);
+  const nat = isNatKey(skipKey);
   for (const t of dayTasks) {
     const key = t.fields.DAY_KEY || t.name.replace(/^RACEDAY:\s*/, '');
-    if (key === skipKey || key === TEST_DAY.key) continue;
+    if (key === skipKey || key === TEST_DAY.key || key === 'SETTINGS') continue;
+    if (isNatKey(key) !== nat) continue;
     if (cur >= 0 && order.indexOf(key) > cur) continue;
     const fin = jparse(t.fields.FINAL_JSON, null);
     if (!fin || !fin.scores) continue;
@@ -61,24 +72,72 @@ function seasonHistory(dayTasks, skipKey) {
 
 const TEST_DAY = { key: 'TEST|SAT', race: 'TEST', day: 'SAT', date: '', test: true };
 
+const NAT_RACES = new Set(SCHEDULE.filter(r => r.national).map(r => r.race));
+const isNatKey = key => NAT_RACES.has(String(key || '').split('|')[0]);
+
+// Every race day in date order.
 function allDays() {
   const out = [];
   for (const r of SCHEDULE) {
-    if (r.sat) out.push({ key: `${r.race}|SAT`, race: r.race, day: 'SAT', date: r.sat });
-    if (r.sun) out.push({ key: `${r.race}|SUN`, race: r.race, day: 'SUN', date: r.sun, single: !!r.single });
+    const nat = r.national ? { national: true, match: r.match } : {};
+    if (r.fri) out.push({ key: `${r.race}|FRI`, race: r.race, day: 'FRI', date: r.fri, ...nat });
+    if (r.sat) out.push({ key: `${r.race}|SAT`, race: r.race, day: 'SAT', date: r.sat, ...nat });
+    if (r.sun) out.push({ key: `${r.race}|SUN`, race: r.race, day: 'SUN', date: r.sun, single: !!r.single, ...nat });
   }
-  return out;
+  return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function todayET() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 }
 
-// Race day shown by default: today if it is a race day, otherwise the next one.
-function defaultDayKey() {
+// Race day shown by default. The latest race weekend that has started stays up
+// (today's day while racing, its last day after) until Michelle archives it.
+// Archived, or nothing started yet: the next race weekend.
+function defaultDayKey(archived = new Set()) {
   const t = todayET();
   const days = allDays();
-  return (days.find(d => d.date >= t) || days[days.length - 1]).key;
+  const started = days.filter(d => d.date <= t);
+  const recent = started.length ? started[started.length - 1].race : null;
+  if (recent && !archived.has(recent)) {
+    const rd = days.filter(d => d.race === recent);
+    return (rd.find(d => d.date === t) || rd[rd.length - 1]).key;
+  }
+  const next = days.find(d => d.date > t && !archived.has(d.race));
+  return (next || days[days.length - 1]).key;
+}
+
+// The national's live motoboard among USA BMX's active events (9000+ = national).
+function pickNational(events, match, dayCode) {
+  const nat = (events || []).filter(e => parseInt(e.track_number, 10) >= 9000);
+  const re = new RegExp(match || '$^', 'i');
+  let list = nat.filter(e => re.test(`${e.name || ''} ${e.location || ''}`));
+  if (list.length > 1 && dayCode) {
+    const word = { FRI: /\bfri/i, SAT: /\bsat/i, SUN: /\bsun/i }[dayCode];
+    list = [...list.filter(e => word && word.test(e.name || '')), ...list];
+  }
+  return list.length ? String(list[0].track_number).trim() : '';
+}
+
+// Riders checked "Racing for a national team" on this national's RSVP.
+async function nationalTeamIds(day) {
+  if (!day?.national) return [];
+  const re = new RegExp(day.match || '$^', 'i');
+  const days = allDays().filter(d => d.race === day.race).map(d => d.date);
+  const from = days[0], to = days[days.length - 1];
+  // Same pick as the RSVP page: the first RSVP task for the event.
+  const task = (await listSection(SEC_RSVPS)).find(t => re.test(t.name)
+    && (!t.fields.EVENT_DATE || (t.fields.EVENT_DATE >= from && t.fields.EVENT_DATE <= to)));
+  if (!task) return [];
+  return Object.entries(task.fields)
+    .filter(([k, v]) => /^NATTEAM_\d+$/.test(k) && String(v).toLowerCase() === 'yes')
+    .map(([k]) => k.slice(8));
+}
+
+// Race weekends Michelle archived: hidden from the day picker, nothing deleted.
+async function readSettings(dayTasks) {
+  const t = dayTasks.find(x => x.name === 'RACEDAY: SETTINGS');
+  return { task: t || null, archived: new Set(String(t?.fields.ARCHIVED || '').split(',').map(x => x.trim()).filter(Boolean)) };
 }
 
 /* ---------- session + asana helpers (same scheme as api/asana.js) ---------- */
@@ -163,6 +222,7 @@ async function patchTask(gid, updates) {
   return merged;
 }
 
+const titleCase = s => String(s || '').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
 const jparse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
 const jline = v => JSON.stringify(v).replace(/\n/g, ' ');
 
@@ -259,7 +319,12 @@ function parseFeed(feed, riders, opts = {}) {
     return { error: `This day's motos aren't posted yet. The live site only has ${String(all[all.length - 1].name || 'the last race').trim()}, which is already loaded for the other day.` };
   }
   let race = opts.raceId ? races.find(r => r.id === opts.raceId) : null;
-  if (!race && races.length > 1 && opts.day) {
+  if (!race && races.length > 1 && opts.day && opts.national) {
+    // Nationals: Friday, Saturday, Sunday are races 1, 2, 3.
+    const word = { FRI: /\bfri|#\s*1\b|\b(race|day)\s*1\b/i, SAT: /\bsat|#\s*2\b|\b(race|day)\s*2\b/i,
+                   SUN: /\bsun|#\s*3\b|\b(race|day)\s*3\b/i }[opts.day];
+    race = races.find(r => word && word.test(r.name || '')) || races[0];
+  } else if (!race && races.length > 1 && opts.day) {
     // The live site reorders races (day 2 can come first), so go by name: "#1" / "#2", Sat / Sun.
     const word = opts.day === 'SAT' ? /\bsat|#\s*1\b|\b(race|day)\s*1\b/i : /\bsun|#\s*2\b|\b(race|day)\s*2\b/i;
     race = races.find(r => word.test(r.name || '')) || races[opts.day === 'SAT' ? 0 : 1];
@@ -423,19 +488,27 @@ export default async function handler(req, res) {
   try {
     const me = await whoAmI(body.gid, body.session);
     const days = allDays();
+    // The day list and archive only matter when no day was picked.
+    let preTasks = null, settings = null;
+    if (!days.some(d => d.key === body.day) && body.day !== TEST_DAY.key) {
+      preTasks = await listSection(await raceDaySection());
+      settings = await readSettings(preTasks);
+    }
     const dayKey = body.day === TEST_DAY.key && me.admin ? TEST_DAY.key
-      : (days.some(d => d.key === body.day) ? body.day : defaultDayKey());
+      : (days.some(d => d.key === body.day) ? body.day : defaultDayKey(settings?.archived));
     const day = dayKey === TEST_DAY.key ? TEST_DAY : days.find(d => d.key === dayKey);
 
     switch (action) {
 
       case 'state': {
-        const dayTasks = await listSection(await raceDaySection());
+        const dayTasks = preTasks || await listSection(await raceDaySection());
+        const { archived } = settings || await readSettings(dayTasks);
         const task = dayTasks.find(t => t.name === `RACEDAY: ${dayKey}`) || null;
         const f = task?.fields || {};
-        // Last season plus finalized days before this one, oldest first.
+        // Finalized days before this one, oldest first. State days also get
+        // last season's tracker; national days only count other nationals.
         const { rows: season, days: finalDays } = seasonHistory(dayTasks, dayKey);
-        const history = JSON.parse(JSON.stringify(HISTORY_2026));
+        const history = day.national ? {} : JSON.parse(JSON.stringify(HISTORY_2026));
         for (const [id, types] of Object.entries(season)) {
           for (const [type, rows] of Object.entries(types)) {
             ((history[id] = history[id] || {})[type] = history[id][type] || []).push(...rows);
@@ -447,10 +520,13 @@ export default async function handler(req, res) {
           for (const [type, rows] of Object.entries(types)) if (rows.length) last[`${id}|${type}`] = rows[rows.length - 1];
         }
         const { logs, acks } = task ? await readLogs(task.gid) : { logs: {}, acks: {} };
+        const tagged = days.map(d => (archived.has(d.race) ? { ...d, archived: true } : d));
         const out = {
           me: { admin: me.admin, helper: me.helper || me.admin },
-          days: me.admin ? [...days, TEST_DAY] : days,
-          day,
+          // Parents never see archived race weekends.
+          days: me.admin ? [...tagged, TEST_DAY] : tagged.filter(d => !d.archived || d.key === dayKey),
+          day: archived.has(day.race) ? { ...day, archived: true } : day,
+          natTeam: day.national ? await nationalTeamIds(day) : [],
           loaded: !!f.MOTOS_JSON,
           entries: jparse(f.MOTOS_JSON, {}),
           feed: jparse(f.FEED_JSON, {}),
@@ -459,6 +535,7 @@ export default async function handler(req, res) {
         if (me.admin || me.helper) {
           out.updated = f.UPDATED || '';
           out.eventName = f.EVENT_NAME || '';
+          out.feedTrack = f.FEED_TRACK || '';
         }
         if (me.admin) {
           const riders = await listSection(SEC_RIDERS);
@@ -485,13 +562,31 @@ export default async function handler(req, res) {
         if (!me.admin && !me.helper) throw deny('Only Michelle and Race Day helpers can load motos.');
         // The phone sends the feed when the USA BMX site will not answer the server.
         let feed = body.feed && typeof body.feed === 'object' ? body.feed : null;
+        const pre = await findDayTask(dayKey, true);
+        const hdrs = { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (NextLevelBMX TeamHub)' } };
+        const blocked = () => res.status(502).json({
+          error: 'The USA BMX live site did not answer the server.', feedBlocked: true,
+          national: !!day.national, match: day.match || '', track: pre.fields.FEED_TRACK || '',
+        });
+        // Nationals have their own motoboard number: the saved one, else look it up.
+        let track = '';
+        if (day.national) {
+          track = String(body.track || pre.fields.FEED_TRACK || '').replace(/\D/g, '');
+          if (!feed && !track) {
+            let ar = null;
+            try { ar = await fetch(ACTIVE_EVENTS_URL, hdrs); } catch { ar = null; }
+            if (!ar || !ar.ok) return blocked();
+            track = pickNational((await ar.json()).events, day.match, day.day);
+          }
+          if (!track) {
+            return res.status(409).json({ error: `${titleCase(day.race)} motos aren't on the USA BMX live site yet. Once they post, they show under USA BMX EVENTS on usabmx.com/events/motoboards. An admin can also paste that link with the MOTOBOARD LINK button.` });
+          }
+        }
         if (!feed) {
           let fr = null;
-          try { fr = await fetch(FEED_URL, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (NextLevelBMX TeamHub)' } }); }
+          try { fr = await fetch(day.national ? NAT_FEED(track) : FEED_URL, hdrs); }
           catch { fr = null; }
-          if (!fr || !fr.ok) {
-            return res.status(502).json({ error: 'The USA BMX live site did not answer the server.', feedBlocked: true });
-          }
+          if (!fr || !fr.ok) return blocked();
           feed = await fr.json();
         }
         if (!feed.races) return res.status(409).json({ error: 'The USA BMX live site has no motos posted right now.' });
@@ -503,7 +598,7 @@ export default async function handler(req, res) {
             });
           }
         }
-        const task = await findDayTask(dayKey, true);
+        const task = pre;
         const riders = (await listSection(SEC_RIDERS)).map(r => ({
           id: r.gid, name: r.name, serial: r.fields.USABMX || '',
         }));
@@ -511,7 +606,7 @@ export default async function handler(req, res) {
         const taken = (await listSection(await raceDaySection()))
           .filter(t => t.gid !== task.gid && (t.fields.DAY_KEY || '').split('|')[0] === day.race && t.fields.FEED_RACE)
           .map(t => t.fields.FEED_RACE);
-        const parsed = parseFeed(feed, riders, { day: day.day, raceId: body.raceId || task.fields.FEED_RACE || '', taken });
+        const parsed = parseFeed(feed, riders, { day: day.day, national: !!day.national, raceId: body.raceId || task.fields.FEED_RACE || '', taken });
         if (parsed.error) return res.status(409).json({ error: parsed.error });
         const now = new Date().toISOString();
         await patchTask(task.gid, {
@@ -520,6 +615,7 @@ export default async function handler(req, res) {
           UPDATED: now,
           EVENT_NAME: `${parsed.eventName} · ${parsed.raceName}`.replace(/\s+/g, ' '),
           FEED_RACE: parsed.raceId,
+          ...(day.national && track ? { FEED_TRACK: track } : {}),
         });
         return res.json({
           ok: true, updated: now, riders: Object.keys(parsed.entries).length,
@@ -575,10 +671,39 @@ export default async function handler(req, res) {
         }
         const final = {
           at: new Date().toISOString(), by: (me.name || '').split(' ')[0],
-          scores, totals: { s1: num(body.final.totals?.s1, 2000), s2: num(body.final.totals?.s2, 2000) },
+          scores, totals: { s1: num(body.final.totals?.s1, 5000), s2: num(body.final.totals?.s2, 5000) },
+          ...(day.national ? { national: true } : {}),
         };
         await patchTask(task.gid, { FINAL_JSON: jline(final) });
         return res.json({ ok: true, final });
+      }
+
+      // Archive a whole race weekend (or bring it back). Nothing is deleted.
+      case 'archive': {
+        if (!me.admin) throw deny('Admins only.');
+        const race = String(body.race || '');
+        if (!SCHEDULE.some(r => r.race === race)) return res.status(400).json({ error: 'Unknown race.' });
+        const sec = await raceDaySection();
+        const tasks = await listSection(sec);
+        let { task, archived } = await readSettings(tasks);
+        if (body.on) archived.add(race); else archived.delete(race);
+        if (!task) {
+          const made = await asana('/tasks', { method: 'POST', body: JSON.stringify({ data: { name: 'RACEDAY: SETTINGS', notes: '', projects: [PROJECT_GID] } }) });
+          await asana(`/sections/${sec}/addTask`, { method: 'POST', body: JSON.stringify({ data: { task: made.gid } }) });
+          task = { gid: made.gid };
+        }
+        await patchTask(task.gid, { ARCHIVED: [...archived].join(',') });
+        return res.json({ ok: true, archived: [...archived] });
+      }
+
+      // Nationals: paste the motoboard link (usabmx.com/events/motoboards/9xxx) by hand.
+      case 'setTrack': {
+        if (!me.admin) throw deny('Admins only.');
+        if (!day.national) return res.status(400).json({ error: 'Only national days use a motoboard link.' });
+        const n = (String(body.track || '').match(/(\d{4,5})\D*$/) || [])[1] || '';
+        const task = await findDayTask(dayKey, true);
+        await patchTask(task.gid, { FEED_TRACK: n });
+        return res.json({ ok: true, track: n });
       }
 
       case 'lock': {

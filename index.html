@@ -585,6 +585,26 @@
   .rd-test span { flex: 1; } .rd-test b { color: #ffcc00; letter-spacing: 1px; }
   .rd-test button { height: 36px; padding: 0 12px; border-radius: 8px; border: 2px solid #ffcc00;
     background: transparent; color: #ffcc00; font-size: 14px; font-weight: 800; letter-spacing: 1px; }
+  .rd-item.nt { border-color: #222; background: #111; opacity: .75; }
+  .rd-item.nt .rd-row { cursor: default; }
+  .rd-ntag { display: inline-block; background: #3a3a3a; color: #d0d0d0; font-size: 10.5px; font-weight: 800; font-style: normal;
+    letter-spacing: .06em; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+  .rd-chip.nt { background: #2e2e2e; border-color: #4a4a4a; color: #bdbdbd; }
+  .rd-card.nt { opacity: .7; background: #101010; border-color: #101010; }
+  .rd-card.nt .rd-cell { filter: grayscale(1); }
+  .rd-adminbar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .rd-adminbar button { flex: 1; min-width: 140px; height: 38px; border-radius: 8px; border: 2px solid #3a3a3a; background: transparent;
+    color: #bdbdbd; font-size: 13.5px; font-weight: 800; letter-spacing: 1px; }
+  .rd-archived { display: flex; align-items: center; gap: 10px; border-radius: 10px; border: 2px solid #5a5a5a;
+    background: #1a1a1a; color: #cfcfcf; padding: 8px 10px; font-size: 15px; font-weight: 600; }
+  .rd-archived span { flex: 1; } .rd-archived b { letter-spacing: 1px; }
+  .rd-archived button { height: 36px; padding: 0 12px; border-radius: 8px; border: 2px solid #38f100;
+    background: transparent; color: #38f100; font-size: 14px; font-weight: 800; letter-spacing: 1px; }
+  .rd-track { display: flex; gap: 8px; align-items: center; }
+  .rd-track input { flex: 1; min-width: 0; height: 40px; border-radius: 8px; border: 2px solid #3a3a3a; background: #111;
+    color: #fff; padding: 0 10px; font-size: 15px; }
+  .rd-track button { height: 40px; padding: 0 14px; border-radius: 8px; border: 2px solid #38f100; background: transparent;
+    color: #38f100; font-size: 14px; font-weight: 800; letter-spacing: 1px; }
   .rd-testbtn { height: 40px; border-radius: 8px; border: 2px dashed #5a5a5a; background: transparent;
     color: #bdbdbd; font-size: 14px; font-weight: 800; letter-spacing: 1px; }
   .rd-note { font-size: 15px; font-weight: 700; color: #a8a8a8; }
@@ -3400,7 +3420,20 @@ boot();
 const RD_FEED_URL = 'https://motoboards.usabmx.com/events/track_1968.json';
 const RD_TYPES = ['open', 'cruiser', 'class'];
 const RD_NICE = { open: 'Open', cruiser: 'Cruiser', class: 'Class' };
-const RD_DAYNAME = { SAT: 'Saturday', SUN: 'Sunday' };
+const RD_DAYNAME = { FRI: 'Friday', SAT: 'Saturday', SUN: 'Sunday' };
+// National day: riders checked "Racing for a national team" on the event's RSVP.
+const rdNat = id => !!S.rd.data?.day?.national && (S.rd.data.natTeam || []).includes(id);
+// The national's live motoboard among USA BMX's active events (9000+ = national).
+function rdPickNational(events, match, dayCode) {
+  const nat = (events || []).filter(e => parseInt(e.track_number, 10) >= 9000);
+  const re = new RegExp(match || '$^', 'i');
+  let list = nat.filter(e => re.test(`${e.name || ''} ${e.location || ''}`));
+  if (list.length > 1 && dayCode) {
+    const word = { FRI: /\bfri/i, SAT: /\bsat/i, SUN: /\bsun/i }[dayCode];
+    list = [...list.filter(e => word && word.test(e.name || '')), ...list];
+  }
+  return list.length ? String(list[0].track_number).trim() : '';
+}
 const RD_ORD = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 const RD_PTS = {
   N: [0, 24, 21, 18, 15, 12, 9, 6, 3],
@@ -3420,7 +3453,7 @@ const rdRule = s => String(s || '').replace(/Total Points/i, 'TP').replace(/\s*-
 const rdTitleCase = s => String(s || '').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
 
 S.rd = { data: null, tab: 'log', phase: 0, open: '', flipped: {}, day: '', busy: false,
-         err: '', editing: null, scope: 'season', timer: null };
+         err: '', editing: null, scope: 'season', timer: null, showArch: false, trackOpen: false };
 
 function rdClean(v = {}) {
   const out = {};
@@ -3535,6 +3568,7 @@ async function rdApi(action, payload = {}) {
   if (!res.ok) {
     const err = new Error(json.error || (res.status === 504 ? 'The server took too long. Try again.' : `Something went wrong (${res.status}).`));
     err.feedBlocked = !!json.feedBlocked || res.status === 504;
+    err.info = json;
     throw err;
   }
   return json;
@@ -3579,6 +3613,35 @@ function rdSetDay(key) {
   S.rd.day = key; S.rd.data = null; S.rd.open = ''; S.rd.flipped = {}; S.rd.editing = null;
   rdRender(); return rdLoad();
 }
+// Admin: archive a whole race weekend (hidden from the picker) or bring it back.
+async function rdArchive(on) {
+  const d = S.rd.data;
+  const race = d?.day?.race;
+  if (!race || d.day.test) return;
+  const name = rdTitleCase(race);
+  if (on && !confirm(`Archive ${name}? It comes off the race day list. Results and points stay saved, and you can restore it any time.`)) return;
+  S.rd.busy = true; rdRender();
+  try {
+    await rdApi('archive', { race, on });
+    S.rd.busy = false;
+    // Archived: go to the next race. Restored: stay on it.
+    return rdSetDay(on ? '' : S.rd.day);
+  } catch (e) { S.rd.err = e.message; }
+  S.rd.busy = false; rdRender();
+}
+function rdShowArch() { S.rd.showArch = !S.rd.showArch; rdRender(); }
+function rdTrackBox() { S.rd.trackOpen = !S.rd.trackOpen; rdRender(); }
+async function rdSaveTrack() {
+  const v = (document.getElementById('rdTrack') || {}).value || '';
+  S.rd.busy = true; S.rd.err = ''; rdRender();
+  try {
+    const r = await rdApi('setTrack', { track: v });
+    S.rd.data.feedTrack = r.track; S.rd.trackOpen = false;
+    S.rd.busy = false;
+    if (r.track) return rdSync();
+  } catch (e) { S.rd.err = e.message; }
+  S.rd.busy = false; rdRender();
+}
 function rdTab(t) { S.rd.tab = t; S.rd.open = ''; S.rd.editing = null; rdRender(); document.getElementById('view').scrollTop = 0; }
 function rdPhase(i) { S.rd.phase = i; S.rd.open = ''; rdRender(); }
 function rdToggle(key) { S.rd.open = S.rd.open === key ? '' : key; rdRender(); }
@@ -3592,9 +3655,22 @@ async function rdSync() {
     catch (e) {
       // USA BMX may refuse the server; the phone can read the live site, so send it along.
       if (!e.feedBlocked) throw e;
-      const fr = await fetch(RD_FEED_URL, { cache: 'no-store' });
+      const day = S.rd.data?.day || {};
+      let url = RD_FEED_URL, track = '';
+      if (day.national) {
+        // Nationals: find the national's own motoboard number, same as the server would.
+        track = String(e.info?.track || S.rd.data?.feedTrack || '').replace(/\D/g, '');
+        if (!track) {
+          const ar = await fetch('https://motoboards.usabmx.com/active_events.json', { cache: 'no-store' });
+          if (!ar.ok) throw new Error(`The USA BMX live site did not answer (${ar.status}). Try again in a minute.`);
+          track = rdPickNational((await ar.json()).events, day.match, day.day);
+        }
+        if (!track) throw new Error(`${rdTitleCase(day.race)} motos aren't on the USA BMX live site yet. Once they post, they show under USA BMX EVENTS on usabmx.com/events/motoboards. An admin can also paste that link with the MOTOBOARD LINK button.`);
+        url = `https://motoboards.usabmx.com/events/track_${track}.json`;
+      }
+      const fr = await fetch(url, { cache: 'no-store' });
       if (!fr.ok) throw new Error(`The USA BMX live site did not answer (${fr.status}). Try again in a minute.`);
-      await rdApi('update', { feed: await fr.json() });
+      await rdApi('update', { feed: await fr.json(), track });
     }
     await rdLoad();
   } catch (e) { S.rd.err = e.message; }
@@ -3677,7 +3753,8 @@ function rdLogHtml() {
     }
   }
   items.sort((a, b) => a.lo - b.lo || a.e.name.localeCompare(b.e.name));
-  const lastLogged = Math.max(0, ...items.filter(i => i.logged && i.lo < 9999).map(i => i.lo));
+  // National team riders don't get logged, so they never move the NOT LOGGED line.
+  const lastLogged = Math.max(0, ...items.filter(i => i.logged && i.lo < 9999 && !rdNat(i.e.id)).map(i => i.lo));
 
   let html = `<div class="rd-phases">${['MOTOS', 'QTR / SEMI', 'MAINS'].map((l, i) =>
     `<button class="${i === phase ? 'on' : ''}" onclick="rdPhase(${i})">${l}</button>`).join('')}</div>
@@ -3698,16 +3775,19 @@ function rdLogHtml() {
     let state = !it.logged ? ''
       : r.out === 'OUT' ? 'out'
       : r.out === 'R2' || (it.tp && rdTpNext(r, it.c)) ? 'r2' : 'logged';
-    if (!it.logged && !it.flag && it.lo < lastLogged) { chip = 'NOT LOGGED'; cc = 'nl'; state = 'nl'; }
-    if (it.flag) { chip = 'CHECK'; cc = 'chk'; state = 'flag'; }
-    const isOpen = S.rd.open === it.key;
+    const nt = rdNat(it.e.id);
+    if (!nt && !it.logged && !it.flag && it.lo < lastLogged) { chip = 'NOT LOGGED'; cc = 'nl'; state = 'nl'; }
+    if (!nt && it.flag) { chip = 'CHECK'; cc = 'chk'; state = 'flag'; }
+    // National team: grey, live site only, nothing to tap.
+    if (nt) { cc = 'nt'; state = 'nt'; }
+    const isOpen = !nt && S.rd.open === it.key;
     const sub = RD_NICE[rdBase(it.k)] + (it.kind === 'moto' ? ` ${it.c.code}` : ` ${it.kind === 'qtr' ? 'quarter' : it.kind}`)
       + (it.kind === 'moto' && it.c.rule ? ` · ${rdRule(it.c.rule)}` : '');
     const num = it.c.num || '—';
     html += `<div class="rd-item ${isOpen ? 'open' : state}">
-      <button class="rd-row" onclick="rdToggle('${it.key}')">
+      <button class="rd-row" ${nt ? '' : `onclick="rdToggle('${it.key}')"`}>
         <span class="rd-num ${num.length > 6 ? 'sm' : ''}">${esc(num)}</span>
-        <span class="rd-who"><b>${esc(it.e.name.split(' ')[0])}${it.e.guest ? ' ·' : ''}</b><span>${esc(sub)}</span></span>
+        <span class="rd-who"><b>${esc(it.e.name.split(' ')[0])}${it.e.guest ? ' ·' : ''}${nt ? '<span class="rd-ntag">NATIONAL TEAM</span>' : ''}</b><span>${esc(sub)}</span></span>
         <span class="rd-right"><span class="rd-chip ${cc}">${chip}</span>
           <span class="rd-count">${it.base.count || '?'} <i>riders</i></span></span>
       </button>`;
@@ -3769,6 +3849,7 @@ function rdBoardHtml() {
   for (const e of riders) {
     const cells = rdCells(e);
     const ok = k => cells[k] && rdQualified(e.id, cells, k);
+    const nt = rdNat(e.id);
     let hasFlag = false;
     const cell = (k, label) => {
       if (!k) return '<div class="rd-cell empty"><small>&nbsp;</small><b>–</b><small>&nbsp;</small></div>';
@@ -3783,7 +3864,7 @@ function rdBoardHtml() {
       else if (r.out === 'OUT') { logged++; cls = 'out'; status = 'OUT'; }
       else if (kind === 'main' && r.p1) { logged++; cls = r.p1 <= 3 ? 'pod' : 'or'; status = RD_ORD[r.p1].toUpperCase(); }
       else if (tp && (r.p1 || r.p2 || r.p3)) { cls = 'or'; status = `${rdTpNext(r, cells[k]) || 'TP'} · ${(r.p1 || 0) + (r.p2 || 0) + (r.p3 || 0)} PTS`; }
-      if (flag) { hasFlag = true; cls += ' chk'; status = 'CHECK'; }
+      if (flag && !nt) { hasFlag = true; cls += ' chk'; status = 'CHECK'; }
       return `<div class="rd-cell ${cls}"><small>${esc(label)}</small><b>${esc(String(cells[k].num || '—').replace(/ · /g, ' '))}</b><small>${status}</small></div>`;
     };
     const rows = RD_TYPES.filter(t => cells[t]).map(t => {
@@ -3815,13 +3896,14 @@ function rdBoardHtml() {
         return `<div class="rd-det"><b>${RD_NICE[t].toUpperCase()}</b>${lines.map(l => `<span>${l}</span>`).join('')}</div>`;
       }).join('');
     }
-    cards += `<button class="rd-card ${hasFlag ? 'flag' : ''}" onclick="rdFlip('${e.id}')">
-      <div class="rd-card-top"><b>${esc(e.name.split(' ')[0].toUpperCase())}</b><span>${back ? 'TAP TO FLIP BACK' : 'TAP FOR DETAILS'}</span></div>
+    cards += `<button class="rd-card ${hasFlag ? 'flag' : ''} ${nt ? 'nt' : ''}" onclick="rdFlip('${e.id}')">
+      <div class="rd-card-top"><b>${esc(e.name.split(' ')[0].toUpperCase())}${nt ? '<span class="rd-ntag">NATIONAL TEAM</span>' : ''}</b><span>${back ? 'TAP TO FLIP BACK' : 'TAP FOR DETAILS'}</span></div>
       ${inner}</button>`;
   }
-  // Team boxes, one count per rider per class raced today.
+  // Team boxes, one count per rider per class raced today (Next Level riders only).
   let r1 = 0, r1Of = 0, mains = 0, raced = 0, better = 0, betterOf = 0;
   for (const e of riders) {
+    if (rdNat(e.id)) continue;
     const cells = rdCells(e);
     for (const t of RD_TYPES) {
       if (!cells[t]) continue;
@@ -3844,6 +3926,7 @@ function rdBoardHtml() {
       <div class="rd-stat"><small>MAINS MADE</small><b>${mains}<i> / ${raced}</i></b></div>
       <div class="rd-stat"><small>IMPROVED</small><b>${better}<i> / ${betterOf}</i></b></div>
     </div>
+    ${d.day?.national ? `<div class="rd-note">Counts are Next Level riders only. IMPROVED compares to their last national.</div>` : ''}
     <div class="rd-cols"><span></span><span>MOTO</span><span>QTR / SEMI</span><span>MAIN</span></div>
     <div class="rd-list">${cards || '<div class="rd-wait">No team motos found for this day.</div>'}</div>`;
 }
@@ -3934,6 +4017,7 @@ async function rdPick(id, type, n) {
 async function rdFinalize() {
   const d = S.rd.data;
   if (!d.loaded) { S.rd.err = 'Load motos before finalizing scores.'; return rdRender(); }
+  if (d.day?.national) return rdFinalizeNat();
   const rows = rdAdminRows();
   const pending = rows.filter(r => rdSheetOf(r.key) && r.s.state === 'pending').length;
   if (!confirm(`${pending ? `${pending} picked ${pending === 1 ? 'rider has' : 'riders have'} no main result yet and will score 0. ` : ''}Finalize ${rdDayLabel(d.day)} scores? They stop changing and count toward predictions.`)) return;
@@ -3952,9 +4036,92 @@ async function rdFinalize() {
   catch (e) { S.rd.err = e.message; }
   S.rd.busy = false; rdRender();
 }
+/* ---- ADMIN on national days: points only, no team sheets ----
+   Every Next Level rider-class scores like a state race. "If we'd entered a team"
+   takes each rider's best class, the 6 strongest riders, and adds the best 4. */
+function rdNatRows() {
+  const d = S.rd.data;
+  const rows = [];
+  for (const e of Object.values(d.entries || {})) {
+    for (const t of RD_TYPES) {
+      if (!e.races[t]) continue;
+      rows.push({ id: e.id, name: e.name, type: t, key: `${e.id}|${t}`, nt: rdNat(e.id), s: rdScore(e.id, t) });
+    }
+  }
+  const nl = rows.filter(r => !r.nt);
+  const best = {};
+  for (const r of nl) if (!best[r.id] || (r.s.pts || 0) > (best[r.id].s.pts || 0)) best[r.id] = r;
+  const team6 = Object.values(best).filter(r => (r.s.pts || 0) > 0).sort((a, b) => b.s.pts - a.s.pts).slice(0, 6);
+  const ifTeam = team6.slice(0, 4).reduce((a, r) => a + r.s.pts, 0);
+  const all = nl.reduce((a, r) => a + (r.s.pts || 0), 0);
+  const mains = nl.filter(r => r.s.state === 'scored').length;
+  return { rows, nl, team6: new Set(team6.map(r => r.key)), ifTeam, all, mains };
+}
+
+async function rdFinalizeNat() {
+  const d = S.rd.data;
+  const n = rdNatRows();
+  const pending = n.nl.filter(r => r.s.state === 'pending').length;
+  if (!confirm(`${pending ? `${pending} ${pending === 1 ? 'class has' : 'classes have'} no main result yet and will score 0. ` : ''}Finalize ${rdDayLabel(d.day)} points? They're saved with national results only, so state predictions don't use them.`)) return;
+  const scores = {};
+  for (const r of n.nl) scores[r.key] = { ...r.s, pts: r.s.pts || 0, code: r.s.code || d.entries[r.id]?.races?.[r.type]?.code || '' };
+  S.rd.busy = true; rdRender();
+  try { d.final = (await rdApi('finalize', { final: { scores, totals: { s1: n.ifTeam, s2: n.all } } })).final; }
+  catch (e) { S.rd.err = e.message; }
+  S.rd.busy = false; rdRender();
+}
+
+function rdNatAdminHtml() {
+  const d = S.rd.data;
+  const fin = d.final;
+  const n = rdNatRows();
+  const ifTeam = fin?.totals ? fin.totals.s1 : n.ifTeam;
+  const all = fin?.totals ? fin.totals.s2 : n.all;
+  let html = `<div class="rd-finbar">
+    <div class="rd-outs">
+      ${fin ? `<button onclick="rdUnfinalize()" ${S.rd.busy ? 'disabled' : ''}>UNFINALIZE</button>`
+        : `<button class="fin" onclick="rdFinalize()" ${S.rd.busy || !d.loaded ? 'disabled' : ''}>FINALIZE SCORES</button>`}
+    </div>
+    <div class="rd-finnote">${fin
+      ? `<b>FINAL</b> · saved ${esc(rdTime(fin.at))}${fin.by ? ` by ${esc(fin.by)}` : ''}. Scores no longer change.`
+      : d.loaded ? 'Scores are live. Finalize once every main is in.' : 'Scores fill in once motos load and mains are logged.'}</div>
+    <div class="rd-finnote">National day: points only, no team sheets. Saved with nationals, never used for state predictions.</div>
+  </div>
+  <div class="rd-sheets" style="grid-template-columns:1fr 1fr">
+    <div class="rd-stat g"><small>IF WE'D ENTERED A TEAM</small><b>${ifTeam}</b><span class="rd-pred">best 4 of 6</span></div>
+    <div class="rd-stat"><small>ALL NEXT LEVEL POINTS</small><b>${all}</b><span class="rd-pred">${n.mains} ${n.mains === 1 ? 'main' : 'mains'}</span></div>
+  </div>
+  <div class="rd-note">"If we'd entered a team" takes each rider's best class, the 6 strongest riders (tagged TEAM 6), and adds the best 4, the way a sheet scores.</div>`;
+  if (!d.loaded) return html + '<div class="rd-wait">Points fill in once motos load.</div>';
+  const val = r => (r.s.pts || 0);
+  const nl = n.nl.slice().sort((a, b) => val(b) - val(a) || a.name.localeCompare(b.name));
+  const card = r => {
+    let pts = '–', col = '#8f8f8f', math = 'Not finished yet';
+    if (r.s.state === 'scored') { pts = r.s.pts; col = '#fff'; math = `${r.s.count} riders + ${RD_ORD[r.s.place]} (${r.s.fp})`; }
+    else if (r.s.state === 'dnq') { pts = String(r.s.pts || 0); col = '#5a5a5a'; math = 'DNQ · no points'; }
+    else if (r.s.state === 'nolevel') { pts = '?'; col = '#ff5500'; math = 'Class level unknown'; }
+    else if (r.s.state === 'none') { pts = '0'; col = '#5a5a5a'; math = 'Did not race'; }
+    const code = d.entries[r.id]?.races[r.type]?.code || '';
+    const on = n.team6.has(r.key);
+    return `<div class="rd-pick" style="border-color:${on ? '#38f100' : '#161616'}">
+      <span class="rd-who"><b>${esc(r.name.split(' ')[0])}${on ? ' <span class="rd-tag" style="color:#38f100">TEAM 6</span>' : ''}</b>
+        <span>${RD_NICE[r.type]}${code ? ' · ' + esc(code) : ''} · ${esc(math)}</span></span>
+      <span class="rd-pts" style="color:${col}">${pts}</span></div>`;
+  };
+  html += `<div class="rd-grp"><b style="color:#38f100">NEXT LEVEL</b><span>by points</span></div>
+    <div class="rd-list">${nl.map(card).join('') || '<div class="rd-note">No Next Level riders in today\'s motos.</div>'}</div>`;
+  const nts = [...new Set(n.rows.filter(r => r.nt).map(r => r.name))];
+  if (nts.length) {
+    html += `<div class="rd-grp"><b style="color:#bdbdbd">NATIONAL TEAM</b><span>not counted for Next Level</span></div>
+      <div class="rd-list">${nts.map(nm => `<div class="rd-pick" style="opacity:.6"><span class="rd-who"><b>${esc(nm.split(' ')[0])}<span class="rd-ntag">NATIONAL TEAM</span></b><span>Not counted for Next Level</span></span><span class="rd-pts" style="color:#5a5a5a">–</span></div>`).join('')}</div>`;
+  }
+  return html;
+}
+
 async function rdUnfinalize() {
   const d = S.rd.data;
-  if (!confirm('Unfinalize? Scores go back to live and this day stops counting toward predictions until you finalize again.')) return;
+  if (!confirm(d.day?.national ? 'Unfinalize? Points go back to live until you finalize again.'
+    : 'Unfinalize? Scores go back to live and this day stops counting toward predictions until you finalize again.')) return;
   const prev = d.final;
   d.final = null; rdRender();
   try { await rdApi('finalize', { final: null }); }
@@ -4204,6 +4371,7 @@ async function rdClearSuggest() {
 function rdAdminHtml() {
   const d = S.rd.data;
   if (!d.roster) return '<div class="rd-wait">Admins only.</div>';
+  if (d.day?.national) return rdNatAdminHtml();
   const rows = rdAdminRows();
   const sheet = [1, 2].map(n => {
     const on = rows.filter(r => rdSheetOf(r.key) === n);
@@ -4316,7 +4484,9 @@ SCREENS.raceday = () => {
   const canSync = !!(d && d.me && (d.me.helper || d.me.admin));
   const titles = { log: 'RACE DAY RESULTS', board: 'MOTO BOARD', admin: 'TEAM SHEETS' };
   const days = d?.days || [];
-  const dayOpts = days.map(x => `<option value="${esc(x.key)}" ${x.key === S.rd.day ? 'selected' : ''}>${esc(rdDayLabel(x))}${x.date ? ' · ' + esc(rdShortDate(x.date)) : ''}</option>`).join('');
+  // Archived race weekends stay off the list unless Michelle shows them.
+  const dayOpts = days.filter(x => !x.archived || S.rd.showArch || x.key === S.rd.day)
+    .map(x => `<option value="${esc(x.key)}" ${x.key === S.rd.day ? 'selected' : ''}>${esc(rdDayLabel(x))}${x.date ? ' · ' + esc(rdShortDate(x.date)) : ''}${x.archived ? ' · archived' : ''}</option>`).join('');
   let html = `<div class="rd"><div class="rd-body">
     <div class="rd-head">
       <div class="rd-title"><b>${titles[tab]}</b>
@@ -4334,7 +4504,24 @@ SCREENS.raceday = () => {
     html += `<div class="rd-test"><span><b>TEST MODE</b> · last race posted on the live site${d.eventName ? ` (${esc(d.eventName)})` : ''}</span>
       <button onclick="rdExitTest()">EXIT</button></div>`;
   }
+  if (d?.day?.archived && !testing) {
+    html += `<div class="rd-archived"><span><b>ARCHIVED</b> · off the race day list. Results are still saved.</span>
+      ${d.me?.admin ? `<button onclick="rdArchive(false)" ${S.rd.busy ? 'disabled' : ''}>RESTORE</button>` : ''}</div>`;
+  }
   if (S.rd.err) html += `<div class="rd-err">${esc(S.rd.err)}</div>`;
+  if (d?.me?.admin && !testing) {
+    const nArch = new Set(days.filter(x => x.archived).map(x => x.race)).size;
+    html += `<div class="rd-adminbar">
+      ${d.day?.archived ? '' : `<button onclick="rdArchive(true)" ${S.rd.busy ? 'disabled' : ''}>ARCHIVE ${esc(rdTitleCase(d.day?.race || '').toUpperCase())}</button>`}
+      ${nArch ? `<button onclick="rdShowArch()">${S.rd.showArch ? 'HIDE ARCHIVED' : `SHOW ARCHIVED (${nArch})`}</button>` : ''}
+      ${d.day?.national ? `<button onclick="rdTrackBox()">MOTOBOARD LINK${d.feedTrack ? ' · ' + esc(d.feedTrack) : ''}</button>` : ''}
+    </div>`;
+    if (d.day?.national && S.rd.trackOpen) {
+      html += `<div class="rd-note">Only needed if LOAD MOTOS can't find the national. Copy the link from usabmx.com/events/motoboards (under USA BMX EVENTS).</div>
+        <div class="rd-track"><input id="rdTrack" placeholder="usabmx.com/events/motoboards/9..." value="${esc(d.feedTrack || '')}">
+        <button onclick="rdSaveTrack()" ${S.rd.busy ? 'disabled' : ''}>SAVE</button></div>`;
+    }
+  }
   if (d?.me?.admin && !testing && !d.loaded) {
     html += `<button class="rd-testbtn" onclick="rdTestMode()">TEST MODE · PULL THE LAST POSTED RACE</button>`;
   }
