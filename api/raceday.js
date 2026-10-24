@@ -367,10 +367,18 @@ function parseFeed(feed, riders, opts = {}) {
     }
   }
 
+  // A rider's age class (14 Expert) comes before an extra class-type race the
+  // same day (F Men, F Women at nationals), whatever order the live site lists them.
+  const isAge = h => /^\d/.test(classCode(acById[h.acId].name));
+  const ordered = Object.values(hits).map((h, i) => [h, i])
+    .sort((a, b) => (raceType(acById[a[0].acId].name) === 'class' && !isAge(a[0]) ? 1 : 0)
+      - (raceType(acById[b[0].acId].name) === 'class' && !isAge(b[0]) ? 1 : 0) || a[1] - b[1])
+    .map(x => x[0]);
+
   const entries = {}, results = {};
-  for (const h of Object.values(hits)) {
+  for (const h of ordered) {
     const ac = acById[h.acId];
-    const type = raceType(ac.name);
+    let type = raceType(ac.name);
     const motoRound = ac.rounds.find(x => x.name === 'Moto') || ac.rounds[0] || {};
     const order = ac.rounds.map(x => x.name);
     const nextOf = name => order[order.indexOf(name) + 1];
@@ -379,6 +387,8 @@ function parseFeed(feed, riders, opts = {}) {
 
     const e = entries[h.rider.id] = entries[h.rider.id] ||
       { id: h.rider.id, name: h.rider.name, guest: !!h.rider.guest, races: {} };
+    // Second class-type race the same day: it takes the Open slot when that's free.
+    if (e.races[type] && type === 'class' && !e.races.open) type = 'open';
     if (e.races[type]) continue; // two classes of the same type in one day: keep the first
 
     const motos = (h.groups.Moto || []).sort((a, b) => numSort(a.mg.name, b.mg.name));
