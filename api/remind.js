@@ -201,14 +201,25 @@ async function rsvpMessages(cfg, today) {
     listSection(SECTIONS.riders),
     listSection(SECTIONS.rsvps),
   ]);
+  // Guests (GUEST: true, visible or hidden) are never nudged. A guest only
+  // matters to an event once they are marked participating on it, and a
+  // participating guest already has an RSVP, so they can never be "missing".
   const roster = riders
     .filter(r => !r.completed)
     .map(r => ({ gid: r.gid, name: r.name, f: parseNotes(r.notes || '') }))
-    .filter(r => !hiddenGuest(r.f));
+    .filter(r => !isGuest(r.f));
+  // An event can have more than one RSVP task (created by simultaneous first
+  // RSVPs). Merge them all, keeping any non-empty answer, so a sparse duplicate
+  // never hides answers stored on the main task.
   const rsvpByEvent = {};
   for (const t of rsvpTasks) {
     const f = parseNotes(t.notes || '');
-    if (f.EVENT_ID) rsvpByEvent[f.EVENT_ID] = f;
+    if (!f.EVENT_ID) continue;
+    const merged = rsvpByEvent[f.EVENT_ID] || (rsvpByEvent[f.EVENT_ID] = {});
+    for (const [k, v] of Object.entries(f)) {
+      if (v !== undefined && v !== '') merged[k] = v;
+      else if (!(k in merged)) merged[k] = v;
+    }
   }
   const out = [];
   for (const e of events) {
