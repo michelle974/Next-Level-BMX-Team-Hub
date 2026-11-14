@@ -281,7 +281,8 @@ async function addLog(taskGid, entry) {
 const normName = s => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
 
 function raceType(cls) {
-  if (/cruiser/i.test(cls)) return 'cruiser';
+  // The live site writes Cruiser out or shortens it: "9 Cruiser", "17-20 Cr", "46-50 W Cr".
+  if (/cruiser|\bcr\b/i.test(cls)) return 'cruiser';
   if (/mix|open|pro-?am/i.test(cls)) return 'open';
   return 'class';
 }
@@ -294,7 +295,7 @@ function classCode(cls) {
   const girl = /girl|\bw\b|women/.test(rest);
   let suf = '';
   if (/pro-?am/.test(rest)) suf = 'pa';
-  else if (/cruiser/.test(rest)) suf = 'c';
+  else if (/cruiser|\bcr\b/.test(rest)) suf = 'c';
   else if (/mix/.test(rest)) suf = 'mix';
   else if (/open/.test(rest)) suf = 'o';
   else if (/nov/.test(rest)) suf = 'n';
