@@ -608,6 +608,15 @@
   .rd-testbtn { height: 40px; border-radius: 8px; border: 2px dashed #5a5a5a; background: transparent;
     color: #bdbdbd; font-size: 14px; font-weight: 800; letter-spacing: 1px; }
   .rd-note { font-size: 15px; font-weight: 700; color: #a8a8a8; }
+  .rd-season { border-radius: 8px; background: #161616; border: 2px solid #2a2a2a; }
+  .rd-season-bar { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: none; border: 0; color: #fff; font: inherit; text-align: left; cursor: pointer; }
+  .rd-season-bar b { font-size: 14px; font-weight: 800; letter-spacing: 1px; }
+  .rd-season-bar span { flex: 1; font-size: 13px; font-weight: 700; color: #a8a8a8; }
+  .rd-season-bar i { font-style: normal; color: #8f8f8f; }
+  .rd-season-body { padding: 0 10px 10px; display: grid; gap: 6px; font-size: 14px; font-weight: 700; color: #d9d9d9; }
+  .rd-season-body .row { display: flex; justify-content: space-between; gap: 10px; }
+  .rd-season-body .row span:first-child { color: #8f8f8f; }
+  .rd-season-body .go { color: #38f100; } .rd-season-body .or { color: #ff5500; }
   .rd-wait { margin-top: 30px; text-align: center; color: #bdbdbd; font-size: 20px; font-weight: 700; line-height: 1.3; }
   .rd-wait big { display: block; font-size: 30px; font-style: italic; font-weight: 800; color: #fff; margin-bottom: 6px; }
   .rd-phases { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px;
@@ -3968,9 +3977,12 @@ function rdScore(id, type) {
   return { state: 'pending' };
 }
 
+// Classes a rider races today: Michelle's change for this day, else what they
+// picked on the race RSVP, else their usual classes.
 function rdClassesFor(id) {
   const d = S.rd.data;
   if (d.dayClasses && d.dayClasses[id]) return d.dayClasses[id];
+  if (d.rsvp?.[id]?.length) return d.rsvp[id];
   return (d.roster.find(r => r.id === id) || {}).classes || [];
 }
 
@@ -3978,7 +3990,10 @@ function rdAdminRows() {
   const d = S.rd.data;
   const rows = [];
   const seen = new Set();
+  // Before motos post, only riders marked Going on the race RSVP (when anyone has RSVP'd).
+  const going = !d.loaded && d.rsvp ? d.rsvp : null;
   for (const rr of d.roster) {
+    if (going && !going[rr.id]) continue;
     const types = d.loaded ? RD_TYPES.filter(t => d.entries[rr.id]?.races[t]) : rdClassesFor(rr.id);
     for (const t of types) { rows.push({ id: rr.id, name: rr.name, type: t }); seen.add(`${rr.id}|${t}`); }
   }
@@ -4266,98 +4281,149 @@ function rdPredict(id, type) {
     if (place) { wMain += k; wPts += k * rdTable(lvl)[place]; wPlace += k * place; dist.push([place, k]); }
   });
   // A light pull toward an even chance: 4 mains in 4 races reads about 95%,
-  // no history reads 50%. A move-up halves what history is worth.
-  const trust = mv ? 0.5 : 1, PRIOR = 0.35;
+  // no history reads 50%.
+  // Aging up: main chance tops out at 90% and they finish 2 places lower than
+  // their average, until their first race in the new age group.
+  // Moving up a level: history counts half, main chance x0.85, 1 place lower.
+  const ageUp = !!mv?.why.includes('age'), lvlUp = !!mv?.why.includes('level');
+  const trust = lvlUp ? 0.5 : 1, PRIOR = 0.35;
   let pMain = (wMain * trust + PRIOR * 0.5) / (w * trust + PRIOR);
+  // One bad race can't drag a rider below their season rate of making mains.
+  const made = rows.filter(r => r[1]).length;
+  if (rows.length && !lvlUp) pMain = Math.max(pMain, (made + PRIOR * 0.5) / (rows.length + PRIOR));
   let place = wMain ? wPlace / wMain : 5;
-  if (mv) { pMain *= 0.85; place = Math.min(8, place + 1); }
-  const fp = !wMain ? rdTable(lvl)[5] : mv ? rdTable(lvl)[Math.round(place)] : wPts / wMain;
+  const drop = (ageUp ? 2 : 0) + (lvlUp ? 1 : 0);
+  if (ageUp) pMain = Math.min(pMain, 0.9);
+  if (lvlUp) pMain *= 0.85;
+  if (mv) place = Math.min(8, place + drop);
+  // Points for their expected finish, rounded to a real place (no history: 5th).
+  place = Math.min(8, Math.max(1, Math.round(place)));
+  const fp = rdTable(lvl)[place];
   const dnq = rdDnqPts(lvl);
   const real = d.entries?.[id]?.races?.[type]?.count;
   const size = rdClassSizes()[rdNorm(code)];
   const count = real || Math.round(size || (w ? wCount / w : 10));
   // Where they finish when they make the main (used to simulate a sheet's best 4).
   const places = dist.length
-    ? dist.map(([pl, k]) => [Math.min(8, pl + (mv ? 1 : 0)), k])
+    ? dist.map(([pl, k]) => [Math.min(8, pl + drop), k])
     : [[3, 1], [4, 1], [5, 1], [6, 1], [7, 1]];
-  return { exp: Math.round(pMain * (count + fp) + (1 - pMain) * dnq), pMain, place, n: rows.length, count, realCount: !!real, mv, lvl, places, dnq };
+  /* This race only: 50%+ chance of the main = predict they make it and score
+     rider count + points for their expected finish; under 50% = predict 0.
+     ifMain is what they score if they do make it. */
+  const ifMain = Math.round(count + fp);
+  const likely = pMain >= 0.5;
+  return { exp: likely ? ifMain : Math.round(dnq), ifMain, likely, pMain, place, n: rows.length, count, realCount: !!real, mv, lvl, places, dnq };
 }
 
-/* Only the best 4 of a sheet's 6 count, so a sheet is worth more than its 4
-   highest predictions: when someone misses the main, the 5th or 6th rider
-   fills in. Simulate the race day many times and average the best-4 total.
-   Draws are seeded per rider and class so the numbers hold steady on screen. */
-const RD_SIMS = 2000;
-function rdSeed(str) {
-  let h = 2166136261;
-  for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
-  return () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
-}
-function rdSamples(id, type) {
-  const key = `${S.rd.day}|${id}|${type}`;
-  S.rd.simCache = S.rd.simCache || {};
-  const p = rdPredict(id, type);
-  // Picked for a class they have no motos in: scores 0, nothing to simulate.
-  if (p.none) return new Float32Array(RD_SIMS);
-  const sig = `${p.pMain.toFixed(4)}|${p.count}|${JSON.stringify(p.places)}|${p.lvl}|${p.dnq}|${rdTable(p.lvl).join()}`;
-  const hit = S.rd.simCache[key];
-  if (hit && hit.sig === sig) return hit.out;
-  const out = new Float32Array(RD_SIMS);
-  if (!p.none) {
-    const rnd = rdSeed(key);
-    const tot = p.places.reduce((a, [, k]) => a + k, 0);
-    for (let i = 0; i < RD_SIMS; i++) {
-      if (rnd() >= p.pMain) { out[i] = p.dnq || 0; continue; }
-      let x = rnd() * tot, pl = p.places[p.places.length - 1][0];
-      for (const [place, k] of p.places) { if ((x -= k) <= 0) { pl = place; break; } }
-      out[i] = p.count + rdTable(p.lvl)[pl];
-    }
+/* ---- ADMIN: season view ----
+   Year-end standings use the best 7 State Race (SCR) sheet scores plus the
+   State Final (Orlando), which counts double. Both sheets from one race can
+   count. Each Trophy sheet costs $10. Awards need at least half the SCRs
+   attended plus the State Final. */
+const RD_SCF = 'ORLANDO STATE CHAMPS', RD_SHEET_FEE = 10;
+const rdBest4 = list => list.map(c => c.p.exp).sort((a, b) => b - a).slice(0, 4).reduce((a, b) => a + b, 0);
+function rdSeason() {
+  const d = S.rd.data;
+  const past = d.historyDays || [];
+  const scores = [];
+  let sheets = 0, attended = 0;
+  for (const x of past) {
+    const ent = x.entered || [(x.totals?.s1 || 0) > 0, (x.totals?.s2 || 0) > 0];
+    sheets += ent.filter(Boolean).length;
+    if (x.key.startsWith(RD_SCF)) continue;
+    if (ent.some(Boolean)) attended++;
+    if (ent[0]) scores.push(x.totals?.s1 || 0);
+    if (ent[1]) scores.push(x.totals?.s2 || 0);
   }
-  S.rd.simCache[key] = { sig, out };
-  return out;
+  const top7 = scores.sort((a, b) => b - a).slice(0, 7);
+  const full = top7.length >= 7;
+  const bar = full ? top7[6] : 0;
+  const scrDays = (d.days || []).filter(x => !x.national && !x.test && x.race !== RD_SCF).length;
+  const scfDone = past.some(x => x.key.startsWith(RD_SCF));
+  // How much a set of today's sheet totals would add to the season's best 7.
+  const gain = vals => {
+    const sum = a => a.reduce((x, y) => x + y, 0);
+    return sum([...top7, ...vals].sort((a, b) => b - a).slice(0, 7)) - sum(top7);
+  };
+  return { top7, full, bar, sheets, spent: sheets * RD_SHEET_FEE, attended, scrDays, scfDone, gain,
+           scfToday: d.day?.race === RD_SCF };
 }
-// Expected best-4 total for a list of {id, type}.
-function rdSheetValue(list) {
-  if (!list.length) return 0;
-  const sm = list.map(x => rdSamples(x.id, x.type));
-  let sum = 0;
-  const v = new Array(sm.length);
-  for (let i = 0; i < RD_SIMS; i++) {
-    for (let j = 0; j < sm.length; j++) v[j] = sm[j][i];
-    v.sort((a, b) => b - a);
-    sum += (v[0] || 0) + (v[1] || 0) + (v[2] || 0) + (v[3] || 0);
+// Would this sheet total count toward the season?
+function rdSheetVerdict(se, val, n) {
+  if (se.scfToday) return n === 1 ? { cls: 'go', txt: 'State Final: counts double' } : { cls: 'or', txt: 'Only your best sheet counts today' };
+  if (!val) return { cls: '', txt: 'Not entered' };
+  if (!se.full) return { cls: 'go', txt: `Counts (${se.top7.length} of 7 so far)` };
+  return val > se.bar ? { cls: 'go', txt: `Would count, replaces ${se.bar}` } : { cls: 'or', txt: 'Won’t count, skip and save $10' };
+}
+// Today's options: one stacked sheet (plus Sheet 2 only if it counts) vs. splitting
+// the top riders evenly across two sheets. Season gain after the $10 sheet fees.
+function rdPlans(cands) {
+  const se = rdSeason();
+  const s1 = rdPickSheet(cands, new Set());
+  const s2 = rdPickSheet(cands, new Set(s1.map(c => c.key)));
+  const v1 = rdBest4(s1), v2 = rdBest4(s2);
+  const keep2 = !se.scfToday && s2.length && (!se.full ? true : v2 > se.bar);
+  const stacked = { s1, s2: keep2 ? s2 : [], v1, v2: keep2 ? v2 : 0, skipped: keep2 ? 0 : v2 };
+  stacked.net = se.gain([v1, stacked.v2].filter(Boolean)) - RD_SHEET_FEE * (keep2 ? 2 : 1);
+  // Split: snake the 8 best predictions across A and B (1,4,5,8 / 2,3,6,7), then backups.
+  const ranked = [...cands].filter(c => c.p.exp > 0).sort((a, b) => b.p.exp - a.p.exp || b.p.pMain - a.p.pMain);
+  const A = [], B = [];
+  const snake = [A, B, B, A, A, B, B, A];
+  for (const c of ranked) {
+    const i = A.length + B.length;
+    if (i >= 8) break;
+    let to = snake[i], other = to === A ? B : A;
+    if (to.some(x => x.id === c.id)) [to, other] = [other, to];
+    if (to.length < 4 && !to.some(x => x.id === c.id)) to.push(c);
   }
-  return sum / RD_SIMS;
+  const used = new Set([...A, ...B].map(c => c.key));
+  const rest = cands.filter(c => !used.has(c.key)).sort((a, b) => b.p.pMain * b.p.ifMain - a.p.pMain * a.p.ifMain);
+  for (const sh of [A, B]) for (const c of rest) {
+    if (sh.length >= 6) break;
+    if (!used.has(c.key) && !sh.some(x => x.id === c.id)) { sh.push(c); used.add(c.key); }
+  }
+  const split = { s1: A, s2: B, v1: rdBest4(A), v2: rdBest4(B) };
+  split.net = se.gain([split.v1, split.v2]) - RD_SHEET_FEE * 2;
+  const useSplit = !se.scfToday && B.length >= 4 && split.net > stacked.net;
+  return { se, stacked, split, best: useSplit ? split : stacked, useSplit };
 }
-// Build the sheet with the highest expected best-4 total: add the rider that
-// helps most, then keep trying swaps until nothing improves it.
-function rdBestSheet(cands, taken) {
+function rdSeasonToggle() { S.rd.seasonOpen = !S.rd.seasonOpen; rdRender(); }
+function rdSeasonHtml(sheet) {
+  const d = S.rd.data;
+  if (d.day?.national || d.day?.test) return '';
+  const se = rdSeason();
+  const open = !!S.rd.seasonOpen;
+  const head = se.scfToday ? 'State Final counts double'
+    : se.full ? `Number to beat: <b>${se.bar}</b>` : `${se.top7.length} of 7 sheets so far`;
+  let body = '';
+  if (open) {
+    const plans = rdPlans(rdAdminRows().map(r => ({ ...r, p: rdPredict(r.id, r.type) })).filter(r => !r.p.none && r.p.ifMain > 0));
+    const row = (a, b, cls = '') => `<div class="row"><span>${a}</span><span class="${cls}">${b}</span></div>`;
+    body = `<div class="rd-season-body">
+      ${row('Best 7 so far', se.top7.length ? se.top7.join(' · ') : 'none yet')}
+      ${row('Number to beat', se.full ? se.bar : 'every sheet counts until you have 7')}
+      ${sheet.map(s => { const v = rdSheetVerdict(se, s.on.length ? s.pred : 0, s.n);
+        return row(`Today, Sheet ${s.n}${s.on.length ? ` (predicted ${s.pred})` : ''}`, v.txt, v.cls); }).join('')}
+      ${se.scfToday ? '' : plans.useSplit
+        ? row('Best plan today', `Split: ${plans.split.v1} + ${plans.split.v2} adds ${plans.split.net + RD_SHEET_FEE * 2} to your best 7`, 'go')
+        : row('Best plan today', `One strong sheet${plans.stacked.s2.length ? ' + Sheet 2' : ''}: adds ${plans.stacked.net + RD_SHEET_FEE * (plans.stacked.s2.length ? 2 : 1)} to your best 7`, 'go')}
+    </div>`;
+  }
+  return `<div class="rd-season">
+    <button class="rd-season-bar" onclick="rdSeasonToggle()"><b>SEASON</b><span>${head}</span><i>${open ? '▾' : '▸'}</i></button>${body}</div>`;
+}
+
+/* One sheet: the 4 highest predictions (main chance breaks ties), then 2 backups
+   who are most likely to make their main, in case a starter misses.
+   A rider goes on a sheet once. */
+function rdPickSheet(cands, taken) {
   const pool = cands.filter(c => !taken.has(c.key));
   const sheet = [];
-  const ok = (c, list) => !list.some(x => x.id === c.id);
-  while (sheet.length < 6) {
-    let best = null, bestV = rdSheetValue(sheet);
-    for (const c of pool) {
-      if (sheet.includes(c) || !ok(c, sheet)) continue;
-      const v = rdSheetValue([...sheet, c]);
-      if (v > bestV + 0.01) { bestV = v; best = c; }
-    }
-    if (!best) break;
-    sheet.push(best);
-  }
-  for (let pass = 0; pass < 3; pass++) {
-    let improved = false;
-    for (let i = 0; i < sheet.length; i++) {
-      const base = rdSheetValue(sheet);
-      for (const c of pool) {
-        if (sheet.includes(c)) continue;
-        const trial = sheet.slice(); trial[i] = c;
-        if (trial.filter(x => x.id === c.id).length > 1) continue;
-        if (rdSheetValue(trial) > base + 0.01) { sheet[i] = c; improved = true; break; }
-      }
-    }
-    if (!improved) break;
-  }
+  const free = c => !sheet.includes(c) && !sheet.some(x => x.id === c.id);
+  const starters = [...pool].sort((a, b) => b.p.exp - a.p.exp || b.p.pMain - a.p.pMain || b.p.ifMain - a.p.ifMain);
+  for (const c of starters) { if (sheet.length >= 4) break; if (c.p.exp > 0 && free(c)) sheet.push(c); }
+  const backups = [...pool].sort((a, b) => b.p.pMain * b.p.ifMain - a.p.pMain * a.p.ifMain);
+  for (const c of backups) { if (sheet.length >= 6) break; if (free(c)) sheet.push(c); }
   return sheet;
 }
 
@@ -4369,11 +4435,11 @@ async function rdSuggest() {
       !confirm('Replace the current picks with the suggested sheets?')) return;
   const cands = rdAdminRows()
     .map(r => ({ ...r, p: rdPredict(r.id, r.type) }))
-    .filter(r => r.p.exp > 0)
-    .sort((a, b) => b.p.exp - a.p.exp);
-  const s1 = rdBestSheet(cands, new Set());
-  const s2 = rdBestSheet(cands, new Set(s1.map(c => c.key)));
-  const picks = { s1: s1.map(c => ({ id: c.id, type: c.type })), s2: s2.map(c => ({ id: c.id, type: c.type })) };
+    .filter(r => !r.p.none && r.p.ifMain > 0);
+  // Sheet 1 is always the strongest sheet. Sheet 2 only when it would count toward
+  // the season's best 7 (it costs $10), or a split adds more than one stacked sheet.
+  const { best } = rdPlans(cands);
+  const picks = { s1: best.s1.map(c => ({ id: c.id, type: c.type })), s2: best.s2.map(c => ({ id: c.id, type: c.type })) };
   const prev = d.picks;
   S.rd.beforeSuggest = { day: S.rd.day, picks: prev };
   d.picks = picks; rdRender();
@@ -4401,7 +4467,7 @@ function rdAdminHtml() {
     const on = rows.filter(r => rdSheetOf(r.key) === n);
     const vals = on.filter(r => r.s.pts !== undefined).map(r => r.s.pts).sort((a, b) => b - a);
     const top4 = vals.slice(0, 4);
-    const pred = Math.round(rdSheetValue(on.map(r => ({ id: r.id, type: r.type }))));
+    const pred = on.map(r => rdPredict(r.id, r.type).exp).sort((a, b) => b - a).slice(0, 4).reduce((a, b) => a + b, 0);
     return { n, on, total: top4.reduce((a, b) => a + b, 0), cutoff: top4.length === 4 ? top4[3] : 0, pred };
   });
   const dayName = RD_DAYNAME[d.day?.day] || 'Today';
@@ -4418,6 +4484,9 @@ function rdAdminHtml() {
       : d.loaded ? 'Scores are live. Finalize once every main is in.' : 'Scores fill in once motos load and mains are logged.'}</div>
     <div class="rd-finnote">Predictions use: ${incl.length ? incl.map(esc).join(', ') : 'no finalized days yet (everyone shows an even chance)'}${
       S.rd.predAt ? ` · updated ${esc(rdTime(S.rd.predAt))}` : ''}</div>
+    ${d.loaded ? '' : `<div class="rd-finnote">${d.rsvp
+      ? `Riders: the ${Object.keys(d.rsvp).length} marked Going on the race RSVP for ${esc(dayName)}, with the classes they picked.`
+      : 'No race RSVPs yet, so everyone shows with their usual classes.'}</div>`}
   </div>
   <div class="rd-sheets">
     ${sheet.map(s => `<div class="rd-stat ${s.n === 1 ? 'g' : ''}" style="${s.n === 2 ? 'border-color:#ff5500;background:#1f1208' : ''}">
@@ -4428,6 +4497,7 @@ function rdAdminHtml() {
   <div class="rd-note">${d.locked ? 'Sheets are turned in. Scores still fill in after the race. Tap LOCKED to change picks.'
     : d.loaded ? 'Picks match what each rider raced. A picked class they did not race scores 0. Best 4 count.'
     : 'Pick before motos post. Tap a name to change that rider’s classes.'}</div>
+  ${rdSeasonHtml(sheet)}
   ${d.locked ? '' : S.rd.beforeSuggest?.day === S.rd.day
     ? `<button class="rd-suggest clear" onclick="rdClearSuggest()">REMOVE SUGGESTIONS</button>`
     : `<button class="rd-suggest" onclick="rdSuggest()">SUGGEST SHEETS FROM PREDICTIONS</button>`}`;
@@ -4468,8 +4538,11 @@ function rdAdminHtml() {
     const counts = !!(info && r.s.pts > 0 && r.s.pts >= info.cutoff);
     const code = d.loaded && d.entries[r.id]?.races[r.type] ? d.entries[r.id].races[r.type].code : '';
     const pr = rdPredict(r.id, r.type);
-    const predLine = pr.none ? '' : `Predicted ${pr.exp} · main ${Math.round(pr.pMain * 100)}% · avg ${RD_ORD[Math.round(pr.place)]}${pr.n ? '' : ' · no history'}`;
-    let pts = pr.none ? '–' : `<i>~${pr.exp}</i>`, math = predLine || 'Not raced yet', col = '#8f8f8f';
+    const pc = Math.round(pr.pMain * 100);
+    const pcol = pc >= 80 ? '#38f100' : pc >= 50 ? '#ff5500' : '#8f8f8f';
+    const predLine = pr.none ? '' : `<span style="color:${pcol}">Main ${pc}%</span> · ${pr.likely
+      ? `${pr.count} riders + ${RD_ORD[Math.min(8, Math.max(1, Math.round(pr.place)))]}` : `${pr.ifMain} if they make it`}${pr.n ? '' : ' · no history'}`;
+    let pts = pr.none ? '–' : `<i>${pr.exp}</i>`, math = predLine || 'Not raced yet', col = '#8f8f8f';
     if (r.s.state === 'scored') { pts = r.s.pts; col = '#fff'; math = `${r.s.count} riders + ${RD_ORD[r.s.place]} (${r.s.fp}) · predicted ${pr.exp}`; }
     else if (r.s.state === 'dnq') { pts = String(r.s.pts || 0); col = r.s.pts ? '#bdbdbd' : '#5a5a5a';
       math = `DNQ · ${r.s.pts ? `${r.s.pts} pts` : 'no points'} · predicted ${pr.exp}`; }

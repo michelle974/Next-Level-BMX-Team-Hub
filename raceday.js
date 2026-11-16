@@ -55,7 +55,9 @@ function seasonHistory(dayTasks, skipKey) {
     if (cur >= 0 && order.indexOf(key) > cur) continue;
     const fin = jparse(t.fields.FINAL_JSON, null);
     if (!fin || !fin.scores) continue;
-    days.push({ key, at: fin.at || '' });
+    // Season box: each finalized day's sheet totals and which sheets were entered ($10 each).
+    const pk = jparse(t.fields.PICKS_JSON, { s1: [], s2: [] });
+    days.push({ key, at: fin.at || '', totals: fin.totals || {}, entered: [!!(pk.s1 || []).length, !!(pk.s2 || []).length] });
     for (const [k, sc] of Object.entries(fin.scores)) {
       if (sc.state !== 'scored' && sc.state !== 'dnq') continue; // did not race or not finished
       const [id, type] = k.split('|');
@@ -130,6 +132,44 @@ async function nationalTeamIds(day) {
   return Object.entries(task.fields)
     .filter(([k, v]) => /^NATTEAM_\d+$/.test(k) && String(v).toLowerCase() === 'yes')
     .map(([k]) => k.slice(8));
+}
+
+/* Who signed up for this race on the Schedule RSVP, for the team sheets page.
+   State races: the RSVP event titled "... State Race ..." or "... State Champ..."
+   that starts within 2 days before the race weekend. Nationals: matched by name.
+   Duplicate RSVP records for one event are merged (the fullest one wins).
+   Returns null when nobody has RSVP'd, so the page falls back to usual classes.
+   rider gid -> race types for this day ('class', 'cruiser', 'open'). */
+async function raceRsvps(day) {
+  if (!day || day.test) return null;
+  const dates = allDays().filter(d => d.race === day.race).map(d => d.date);
+  const from = new Date(`${dates[0]}T12:00:00Z`); from.setUTCDate(from.getUTCDate() - 2);
+  const lo = from.toISOString().slice(0, 10), hi = dates[dates.length - 1];
+  const re = day.national ? new RegExp(day.match || '$^', 'i') : /state (race|champ)/i;
+  const tasks = (await listSection(SEC_RSVPS)).filter(t => re.test(t.name)
+    && t.fields.EVENT_DATE && t.fields.EVENT_DATE >= lo && t.fields.EVENT_DATE <= hi);
+  if (!tasks.length) return null;
+  // Records for the same event, fullest first; earlier ones win each field.
+  const byEvent = tasks.filter(t => t.fields.EVENT_ID === tasks[0].fields.EVENT_ID)
+    .sort((a, b) => Object.keys(b.fields).length - Object.keys(a.fields).length);
+  const f = {};
+  for (const t of [...byEvent].reverse()) Object.assign(f, t.fields);
+  const list = v => String(v || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+  const dayCode = String(day.day || '').toLowerCase();
+  const out = {};
+  let any = false;
+  for (const [k, v] of Object.entries(f)) {
+    const m = k.match(/^RSVP_(\d+)$/);
+    if (!m) continue;
+    any = true;
+    if (String(v).toLowerCase() !== 'going') continue;
+    const gid = m[1];
+    if (String(f[`NATTEAM_${gid}`] || '').toLowerCase() === 'yes') continue;
+    const days = list(f[`DAYS_${gid}`]);
+    if (days.length && !days.includes(dayCode)) continue; // going, but not this day
+    out[gid] = cleanTypes(list(f[`RACING_${gid}`]));
+  }
+  return any ? out : null;
 }
 
 // Race weekends Michelle archived: hidden from the day picker, nothing deleted.
@@ -551,7 +591,9 @@ export default async function handler(req, res) {
           out.feedTrack = f.FEED_TRACK || '';
         }
         if (me.admin) {
-          const riders = await listSection(SEC_RIDERS);
+          const [riders, rsvp] = await Promise.all([listSection(SEC_RIDERS), raceRsvps(day)]);
+          // Riders marked Going on the race's RSVP, with the classes they picked.
+          out.rsvp = rsvp;
           out.picks = jparse(f.PICKS_JSON, { s1: [], s2: [] });
           out.locked = (f.LOCKED || '').toLowerCase() === 'true';
           out.dayClasses = jparse(f.CLASSES_JSON, {});
@@ -560,7 +602,7 @@ export default async function handler(req, res) {
           out.final = jparse(f.FINAL_JSON, null);
           out.history = history;
           out.roster = riders
-            .filter(r => r.fields.RACE_CLASSES !== undefined || DEFAULT_CLASSES[r.gid])
+            .filter(r => r.fields.RACE_CLASSES !== undefined || DEFAULT_CLASSES[r.gid] || rsvp?.[r.gid])
             .map(r => ({
               id: r.gid, name: r.name,
               proficiency: r.fields.PROFICIENCY || '',
