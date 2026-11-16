@@ -4253,7 +4253,10 @@ function rdMoveUp(id, type, rows) {
   if (!last || !now) return null;
   const was = rdBand(last), is = rdBand(now);
   const notes = [];
-  if (was && is && is[0] > was[1]) notes.push('age');
+  // Single-age classes age up together every January (USA BMX age = age on Dec 31),
+  // so 14 Expert -> 15 Expert is the same field a year older: no penalty.
+  // Moving into a new multi-age group (9-10 -> 11-12, 36-40 -> 41-45) is real.
+  if (was && is && is[0] > was[1] && is[1] > is[0]) notes.push('age');
   const lw = rdLvlOf(last), ln = rdLvlOf(now);
   const rank = { n: 0, i: 1, x: 2, gx: 2 };
   if (type === 'class' && lw && ln && rank[ln] > rank[lw]) notes.push('level');
@@ -4382,7 +4385,9 @@ function rdPlans(cands) {
     if (sh.length >= 6) break;
     if (!used.has(c.key) && !sh.some(x => x.id === c.id)) { sh.push(c); used.add(c.key); }
   }
-  const split = { s1: A, s2: B, v1: rdBest4(A), v2: rdBest4(B) };
+  // Sheet 1 is always the stronger of the two.
+  const [hi, lo] = rdBest4(A) >= rdBest4(B) ? [A, B] : [B, A];
+  const split = { s1: hi, s2: lo, v1: rdBest4(hi), v2: rdBest4(lo) };
   split.net = se.gain([split.v1, split.v2]) - RD_SHEET_FEE * 2;
   const useSplit = !se.scfToday && B.length >= 4 && split.net > stacked.net;
   return { se, stacked, split, best: useSplit ? split : stacked, useSplit };
@@ -4558,8 +4563,8 @@ function rdAdminHtml() {
     return `<div class="rd-pick" style="border-color:${bd}">
       <span class="rd-who" onclick="rdEdit('${r.id}')"><b>${esc(r.name.split(' ')[0])}
         ${counts ? `<span class="rd-tag" style="color:${sh === 1 ? '#38f100' : '#ff5500'}">COUNTS</span>` : ''}</b>
-        <span>${RD_NICE[r.type]}${code ? ' · ' + esc(code) : ''} · ${esc(math)}</span>
-        ${pr.mv ? `<span class="rd-moveup">MOVED UP ${esc(pr.mv.from.toUpperCase())} → ${esc(pr.mv.to.toUpperCase())}${pr.mv.why.includes('level') ? ` · NEW LEVEL` : ''} · history counts less</span>` : ''}</span>
+        <span>${RD_NICE[r.type]}${code ? ' · ' + esc(code) : ''} · ${math}</span>
+        ${pr.mv ? `<span class="rd-moveup">MOVED UP ${esc(pr.mv.from.toUpperCase())} → ${esc(pr.mv.to.toUpperCase())}${pr.mv.why.includes('level') ? ' · NEW LEVEL' : ' · NEW AGE GROUP'} · predicted lower</span>` : ''}</span>
       <span class="rd-pts" style="color:${col}">${pts}</span>${btn(1)}${btn(2)}</div>`;
   };
   for (const n of [1, 2]) {
