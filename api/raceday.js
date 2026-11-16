@@ -37,16 +37,11 @@ const SCHEDULE = [
 /* Points roster and each rider's usual classes. A RACE_CLASSES line on the
    rider's Team Hub record (set from ADMIN > tap a name > THIS SEASON) wins. */
 // Usual classes per rider live in _classes.js (shared with the RSVP page).
-/* Last season's state series results (2025-2026 tracker: Ancient City,
-   Naples, Sarasota, Tampa), used for pick predictions.
-   rider gid -> race type -> [[start-of-day rider count, main finish (0 = no main), class code], ...] */
-const HISTORY_2026 = {"1217688662198033":{"class":[[18,0,"8i"],[15,0,"8i"],[16,0,"8i"],[15,0,"8i"],[14,0,"8i"],[11,7,"8i"],[13,0,"8i"]]},"1218422751273322":{"class":[[13,0,"9x"],[12,0,"9x"],[13,0,"9x"],[10,7,"9x"],[9,8,"9x"],[11,0,"9x"],[12,0,"9x"]],"open":[[9,0,"9-10 o"],[9,0,"9-10 o"]]},"1218868051910927":{"open":[[10,2,"9-10 mix"],[10,2,"9-10 mix"],[17,6,"9-10 mix"],[14,5,"9-10 mix"],[13,5,"9-10 mix"],[20,7,"9-10 mix"],[9,5,"9-10 mix"],[11,3,"9-10 mix"]],"class":[[20,4,"10i"],[21,6,"10i"],[20,7,"10i"],[18,6,"9i"],[17,6,"9i"],[18,4,"9i"],[17,2,"9i"]]},"1218536822086540":{"open":[[10,3,"9-10 mix"],[14,4,"9-10 mix"],[13,3,"9-10 mix"],[20,4,"9-10 mix"],[9,1,"9-10 mix"],[11,2,"9-10 mix"]],"class":[[20,3,"10i"],[21,2,"10i"],[20,8,"10i"],[18,3,"10i"],[19,3,"10i"],[12,1,"10n"],[17,1,"10n"]],"cruiser":[[9,5,"10c"]]},"1218499152780145":{"class":[[13,5,"9x"],[12,4,"9x"],[13,0,"9x"]]},"1217688811972923":{"cruiser":[[7,4,"11c"],[7,6,"11c"],[9,5,"11c"],[7,4,"11c"],[6,5,"11c"],[6,3,"11c"],[8,4,"11c"],[8,5,"11c"]],"class":[[16,3,"11x"],[15,5,"11x"],[9,7,"11x"],[13,8,"11x"],[13,0,"11x"],[17,0,"11x"],[15,0,"11x"]]},"1217691735658902":{"cruiser":[[6,5,"14c"],[6,6,"14c"],[7,5,"14c"],[6,6,"14c"],[5,4,"14c"],[5,4,"14c"],[5,4,"14c"]],"class":[[16,0,"14x"],[16,0,"14x"],[15,0,"14x"],[18,0,"14x"],[16,0,"14x"],[19,0,"14x"],[21,0,"14x"]]},"1218499552279429":{"cruiser":[[6,1,"14c"],[6,1,"14c"],[7,2,"14c"]],"class":[[16,2,"14x"],[16,0,"14x"],[15,0,"14x"]]},"1218474207475104":{"open":[[10,0,"pro-am"],[8,8,"pro-am"],[11,2,"13-14 mix"],[10,2,"13-14 mix"],[19,2,"13-14 mix"],[12,4,"13-14 mix"],[12,4,"13-14 mix"]],"class":[[9,6,"13gx"],[7,6,"13gx"],[4,2,"14gx"],[3,2,"14gx"],[15,1,"13gx"],[15,1,"13gx"],[15,5,"13gx"],[16,4,"13gx"]]},"1218474699070852":{"cruiser":[[6,5,"16c"],[6,3,"16c"],[4,2,"16c"],[4,3,"16c"],[4,2,"16c"],[4,2,"16c"],[5,3,"15c"],[5,5,"15c"]],"class":[[16,0,"16x"],[15,0,"16x"],[9,0,"16x"],[15,0,"16x"],[15,0,"16x"],[17,8,"15x"],[16,8,"15x"]]},"1218574356224928":{"class":[[10,1,"36-40n"],[7,1,"36-40n"],[9,2,"36-40n"]]},"1218552188030900":{"cruiser":[[9,6,"11c"],[7,3,"11c"],[9,4,"10c"],[8,3,"10c"],[9,7,"10c"],[10,8,"10c"]],"class":[[9,6,"11x"],[18,5,"10x"],[18,5,"10x"],[18,7,"10x"],[21,4,"10x"]],"open":[[9,3,""]]},"1218780741222024":{"open":[[4,2,"11-12 o"]],"class":[[17,4,"12x"]]}};
-
 // This season's race days that Michelle finalized on the Team Sheets page.
 // Only finalized scores count, so predictions match what she signed off on.
 // Only days before the one being viewed count (all days when testing).
 // State days and national days build separate histories: national fields are
-// bigger, so they never feed state predictions or the IMPROVED box.
+// bigger, so they never feed state predictions.
 function seasonHistory(dayTasks, skipKey) {
   const rows = {}, days = [];
   const order = allDays().map(d => d.key);
@@ -55,18 +50,23 @@ function seasonHistory(dayTasks, skipKey) {
   for (const t of dayTasks) {
     const key = t.fields.DAY_KEY || t.name.replace(/^RACEDAY:\s*/, '');
     if (key === skipKey || key === TEST_DAY.key || key === 'SETTINGS') continue;
+    if (pickDay(dayTasks, key)?.gid !== t.gid) continue; // a leftover duplicate day record
     if (isNatKey(key) !== nat) continue;
     if (cur >= 0 && order.indexOf(key) > cur) continue;
     const fin = jparse(t.fields.FINAL_JSON, null);
     if (!fin || !fin.scores) continue;
-    days.push({ key, at: fin.at || '' });
+    // Season box: each finalized day's sheet totals and which sheets were entered ($10 each).
+    const pk = jparse(t.fields.PICKS_JSON, { s1: [], s2: [] });
+    days.push({ key, at: fin.at || '', totals: fin.totals || {}, entered: [!!(pk.s1 || []).length, !!(pk.s2 || []).length] });
     for (const [k, sc] of Object.entries(fin.scores)) {
       if (sc.state !== 'scored' && sc.state !== 'dnq') continue; // did not race or not finished
       const [id, type] = k.split('|');
-      ((rows[id] = rows[id] || {})[type] = rows[id][type] || []).push([sc.count || 0, sc.place || 0, String(sc.code || '').toLowerCase()]);
+      ((rows[id] = rows[id] || {})[type] = rows[id][type] || []).push([sc.count || 0, sc.place || 0, String(sc.code || '').toLowerCase().replace(/\s+/g, ''), key]);
     }
   }
   days.sort((a, b) => allDays().findIndex(d => d.key === a.key) - allDays().findIndex(d => d.key === b.key));
+  // Each rider's races oldest to newest, so the newest always counts most.
+  for (const types of Object.values(rows)) for (const list of Object.values(types)) list.sort((a, b) => order.indexOf(a[3]) - order.indexOf(b[3]));
   return { rows, days };
 }
 
@@ -132,6 +132,44 @@ async function nationalTeamIds(day) {
   return Object.entries(task.fields)
     .filter(([k, v]) => /^NATTEAM_\d+$/.test(k) && String(v).toLowerCase() === 'yes')
     .map(([k]) => k.slice(8));
+}
+
+/* Who signed up for this race on the Schedule RSVP, for the team sheets page.
+   State races: the RSVP event titled "... State Race ..." or "... State Champ..."
+   that starts within 2 days before the race weekend. Nationals: matched by name.
+   Duplicate RSVP records for one event are merged (the fullest one wins).
+   Returns null when nobody has RSVP'd, so the page falls back to usual classes.
+   rider gid -> race types for this day ('class', 'cruiser', 'open'). */
+async function raceRsvps(day) {
+  if (!day || day.test) return null;
+  const dates = allDays().filter(d => d.race === day.race).map(d => d.date);
+  const from = new Date(`${dates[0]}T12:00:00Z`); from.setUTCDate(from.getUTCDate() - 2);
+  const lo = from.toISOString().slice(0, 10), hi = dates[dates.length - 1];
+  const re = day.national ? new RegExp(day.match || '$^', 'i') : /state (race|champ)/i;
+  const tasks = (await listSection(SEC_RSVPS)).filter(t => re.test(t.name)
+    && t.fields.EVENT_DATE && t.fields.EVENT_DATE >= lo && t.fields.EVENT_DATE <= hi);
+  if (!tasks.length) return null;
+  // Records for the same event, fullest first; earlier ones win each field.
+  const byEvent = tasks.filter(t => t.fields.EVENT_ID === tasks[0].fields.EVENT_ID)
+    .sort((a, b) => Object.keys(b.fields).length - Object.keys(a.fields).length);
+  const f = {};
+  for (const t of [...byEvent].reverse()) Object.assign(f, t.fields);
+  const list = v => String(v || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+  const dayCode = String(day.day || '').toLowerCase();
+  const out = {};
+  let any = false;
+  for (const [k, v] of Object.entries(f)) {
+    const m = k.match(/^RSVP_(\d+)$/);
+    if (!m) continue;
+    any = true;
+    if (String(v).toLowerCase() !== 'going') continue;
+    const gid = m[1];
+    if (String(f[`NATTEAM_${gid}`] || '').toLowerCase() === 'yes') continue;
+    const days = list(f[`DAYS_${gid}`]);
+    if (days.length && !days.includes(dayCode)) continue; // going, but not this day
+    out[gid] = cleanTypes(list(f[`RACING_${gid}`]));
+  }
+  return any ? out : null;
 }
 
 // Race weekends Michelle archived: hidden from the day picker, nothing deleted.
@@ -238,16 +276,31 @@ async function raceDaySection() {
   return (rdSectionGid = made.gid);
 }
 
+// One record per race day. If two taps ever create two at the same moment,
+// everyone uses the one holding motos or final scores (oldest first if both or
+// neither do) and a brand new copy is removed.
+const gidLess = (a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+const dayWeight = t => (t.fields?.FINAL_JSON ? 2 : 0) + (t.fields?.MOTOS_JSON ? 1 : 0);
+function pickDay(tasks, key) {
+  return tasks.filter(t => t.name === `RACEDAY: ${key}`)
+    .sort((a, b) => dayWeight(b) - dayWeight(a) || gidLess(a.gid, b.gid))[0] || null;
+}
+
 async function findDayTask(key, create) {
   const sec = await raceDaySection();
-  const tasks = await listSection(sec);
-  const hit = tasks.find(t => t.name === `RACEDAY: ${key}`);
-  if (hit || !create) return hit || null;
+  const hit = pickDay(await listSection(sec), key);
+  if (hit || !create) return hit;
   const task = await asana('/tasks', {
     method: 'POST',
     body: JSON.stringify({ data: { name: `RACEDAY: ${key}`, notes: buildNotes({ DAY_KEY: key }), projects: [PROJECT_GID] } }),
   });
   await asana(`/sections/${sec}/addTask`, { method: 'POST', body: JSON.stringify({ data: { task: task.gid } }) });
+  // Another request may have created the same day a moment ago: keep the oldest.
+  const first = pickDay(await listSection(sec), key);
+  if (first && first.gid !== task.gid) {
+    try { await asana(`/tasks/${task.gid}`, { method: 'DELETE' }); } catch { /* the oldest still wins */ }
+    return first;
+  }
   return { gid: task.gid, name: `RACEDAY: ${key}`, fields: { DAY_KEY: key } };
 }
 
@@ -514,22 +567,11 @@ export default async function handler(req, res) {
       case 'state': {
         const dayTasks = preTasks || await listSection(await raceDaySection());
         const { archived } = settings || await readSettings(dayTasks);
-        const task = dayTasks.find(t => t.name === `RACEDAY: ${dayKey}`) || null;
+        const task = pickDay(dayTasks, dayKey);
         const f = task?.fields || {};
-        // Finalized days before this one, oldest first. State days also get
-        // last season's tracker; national days only count other nationals.
-        const { rows: season, days: finalDays } = seasonHistory(dayTasks, dayKey);
-        const history = day.national ? {} : JSON.parse(JSON.stringify(HISTORY_2026));
-        for (const [id, types] of Object.entries(season)) {
-          for (const [type, rows] of Object.entries(types)) {
-            ((history[id] = history[id] || {})[type] = history[id][type] || []).push(...rows);
-          }
-        }
-        // Everyone gets each rider's last race per class (for the IMPROVED box).
-        const last = {};
-        for (const [id, types] of Object.entries(history)) {
-          for (const [type, rows] of Object.entries(types)) if (rows.length) last[`${id}|${type}`] = rows[rows.length - 1];
-        }
+        // Finalized days before this one, oldest first: this season's state days
+        // for a state day, other nationals for a national day.
+        const { rows: history, days: finalDays } = seasonHistory(dayTasks, dayKey);
         const { logs, acks } = task ? await readLogs(task.gid) : { logs: {}, acks: {} };
         const tagged = days.map(d => (archived.has(d.race) ? { ...d, archived: true } : d));
         const out = {
@@ -541,7 +583,7 @@ export default async function handler(req, res) {
           loaded: !!f.MOTOS_JSON,
           entries: jparse(f.MOTOS_JSON, {}),
           feed: jparse(f.FEED_JSON, {}),
-          logs, acks, last,
+          logs, acks,
         };
         if (me.admin || me.helper) {
           out.updated = f.UPDATED || '';
@@ -549,16 +591,18 @@ export default async function handler(req, res) {
           out.feedTrack = f.FEED_TRACK || '';
         }
         if (me.admin) {
-          const riders = await listSection(SEC_RIDERS);
+          const [riders, rsvp] = await Promise.all([listSection(SEC_RIDERS), raceRsvps(day)]);
+          // Riders marked Going on the race's RSVP, with the classes they picked.
+          out.rsvp = rsvp;
           out.picks = jparse(f.PICKS_JSON, { s1: [], s2: [] });
           out.locked = (f.LOCKED || '').toLowerCase() === 'true';
           out.dayClasses = jparse(f.CLASSES_JSON, {});
-          // Pick predictions: last season plus this season's finished days.
+          // Pick predictions: this season's finalized days.
           out.historyDays = finalDays;
           out.final = jparse(f.FINAL_JSON, null);
           out.history = history;
           out.roster = riders
-            .filter(r => r.fields.RACE_CLASSES !== undefined || DEFAULT_CLASSES[r.gid])
+            .filter(r => r.fields.RACE_CLASSES !== undefined || DEFAULT_CLASSES[r.gid] || rsvp?.[r.gid])
             .map(r => ({
               id: r.gid, name: r.name,
               proficiency: r.fields.PROFICIENCY || '',
