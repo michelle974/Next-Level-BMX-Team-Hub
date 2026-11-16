@@ -1,0 +1,765 @@
+// Next Level BMX Team Hub — Race Day (moto board, results log, team sheets)
+// Storage: one Asana task per race day in the "Race Day" section of the Team Hub
+// project. Motos, feed results, picks and lock live in that task's notes.
+// Parent-logged results are Asana comments on the task (append-only, so two
+// parents logging at the same moment never overwrite each other).
+
+import crypto from 'crypto';
+import { DEFAULT_CLASSES } from './_classes.js';
+
+const ASANA = 'https://app.asana.com/api/1.0';
+const TOKEN = process.env.ASANA_TOKEN;
+const SECRET = process.env.SESSION_SECRET || 'nlbmx-dev-secret-change-me';
+const PROJECT_GID = process.env.HUB_PROJECT_GID || '1217616477503428';
+const SEC_RIDERS = process.env.SEC_RIDERS || '1217616432345566';
+const SEC_PARENTS = process.env.SEC_PARENTS || '1217629407873450';
+const FEED_URL = process.env.RACEDAY_FEED_URL || 'https://motoboards.usabmx.com/events/track_1968.json';
+const SEC_RSVPS = process.env.SEC_RSVPS || '1218431788865096';
+const NAT_FEED = n => `https://motoboards.usabmx.com/events/track_${n}.json`;
+const ACTIVE_EVENTS_URL = 'https://motoboards.usabmx.com/active_events.json';
+const RD_SECTION_NAME = 'Race Day';
+const LOG_PREFIX = 'RD1 ';
+
+/* State series race days. Orlando State Champs is one day only.
+   Nationals race Friday, Saturday and Sunday. `match` finds the national's live
+   motoboard (USA BMX numbers nationals 9000+) and its RSVP event by name. */
+const SCHEDULE = [
+  { race: 'OLDSMAR', sat: '2026-10-17', sun: '2026-10-18' },
+  { race: 'GATOR NATIONALS', fri: '2026-10-23', sat: '2026-10-24', sun: '2026-10-25', national: true, match: 'gator|oldsmar' },
+  { race: 'SUNSHINE STATE NATIONALS', fri: '2027-01-15', sat: '2027-01-16', sun: '2027-01-17', national: true, match: 'sunshine|okeeheelee' },
+  { race: 'DAYTONA', sat: '2026-11-14', sun: '2026-11-15' },
+  { race: 'TAMPA', sat: '2027-01-09', sun: '2027-01-10' },
+  { race: 'OKEEHEELEE', sat: '2027-02-06', sun: '2027-02-07' },
+  { race: 'CHARLOTTE', sat: '2027-03-20', sun: '2027-03-21' },
+  { race: 'HIGH SPRINGS', sat: '2027-04-24', sun: '2027-04-25' },
+  { race: 'ORLANDO STATE CHAMPS', sun: '2027-05-16', single: true },
+];
+/* Points roster and each rider's usual classes. A RACE_CLASSES line on the
+   rider's Team Hub record (set from ADMIN > tap a name > THIS SEASON) wins. */
+// Usual classes per rider live in _classes.js (shared with the RSVP page).
+// This season's race days that Michelle finalized on the Team Sheets page.
+// Only finalized scores count, so predictions match what she signed off on.
+// Only days before the one being viewed count (all days when testing).
+// State days and national days build separate histories: national fields are
+// bigger, so they never feed state predictions.
+function seasonHistory(dayTasks, skipKey) {
+  const rows = {}, days = [];
+  const order = allDays().map(d => d.key);
+  const cur = order.indexOf(skipKey);
+  const nat = isNatKey(skipKey);
+  for (const t of dayTasks) {
+    const key = t.fields.DAY_KEY || t.name.replace(/^RACEDAY:\s*/, '');
+    if (key === skipKey || key === TEST_DAY.key || key === 'SETTINGS') continue;
+    if (pickDay(dayTasks, key)?.gid !== t.gid) continue; // a leftover duplicate day record
+    if (isNatKey(key) !== nat) continue;
+    if (cur >= 0 && order.indexOf(key) > cur) continue;
+    const fin = jparse(t.fields.FINAL_JSON, null);
+    if (!fin || !fin.scores) continue;
+    days.push({ key, at: fin.at || '' });
+    for (const [k, sc] of Object.entries(fin.scores)) {
+      if (sc.state !== 'scored' && sc.state !== 'dnq') continue; // did not race or not finished
+      const [id, type] = k.split('|');
+      ((rows[id] = rows[id] || {})[type] = rows[id][type] || []).push([sc.count || 0, sc.place || 0, String(sc.code || '').toLowerCase().replace(/\s+/g, ''), key]);
+    }
+  }
+  days.sort((a, b) => allDays().findIndex(d => d.key === a.key) - allDays().findIndex(d => d.key === b.key));
+  // Each rider's races oldest to newest, so the newest always counts most.
+  for (const types of Object.values(rows)) for (const list of Object.values(types)) list.sort((a, b) => order.indexOf(a[3]) - order.indexOf(b[3]));
+  return { rows, days };
+}
+
+const TEST_DAY = { key: 'TEST|SAT', race: 'TEST', day: 'SAT', date: '', test: true };
+
+const NAT_RACES = new Set(SCHEDULE.filter(r => r.national).map(r => r.race));
+const isNatKey = key => NAT_RACES.has(String(key || '').split('|')[0]);
+
+// Every race day in date order.
+function allDays() {
+  const out = [];
+  for (const r of SCHEDULE) {
+    const nat = r.national ? { national: true, match: r.match } : {};
+    if (r.fri) out.push({ key: `${r.race}|FRI`, race: r.race, day: 'FRI', date: r.fri, ...nat });
+    if (r.sat) out.push({ key: `${r.race}|SAT`, race: r.race, day: 'SAT', date: r.sat, ...nat });
+    if (r.sun) out.push({ key: `${r.race}|SUN`, race: r.race, day: 'SUN', date: r.sun, single: !!r.single, ...nat });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function todayET() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
+// Race day shown by default. The latest race weekend that has started stays up
+// (today's day while racing, its last day after) until Michelle archives it.
+// Archived, or nothing started yet: the next race weekend.
+function defaultDayKey(archived = new Set()) {
+  const t = todayET();
+  const days = allDays();
+  const started = days.filter(d => d.date <= t);
+  const recent = started.length ? started[started.length - 1].race : null;
+  if (recent && !archived.has(recent)) {
+    const rd = days.filter(d => d.race === recent);
+    return (rd.find(d => d.date === t) || rd[rd.length - 1]).key;
+  }
+  const next = days.find(d => d.date > t && !archived.has(d.race));
+  return (next || days[days.length - 1]).key;
+}
+
+// The national's live motoboard among USA BMX's active events (9000+ = national).
+function pickNational(events, match, dayCode) {
+  const nat = (events || []).filter(e => parseInt(e.track_number, 10) >= 9000);
+  const re = new RegExp(match || '$^', 'i');
+  let list = nat.filter(e => re.test(`${e.name || ''} ${e.location || ''}`));
+  if (list.length > 1 && dayCode) {
+    const word = { FRI: /\bfri/i, SAT: /\bsat/i, SUN: /\bsun/i }[dayCode];
+    list = [...list.filter(e => word && word.test(e.name || '')), ...list];
+  }
+  return list.length ? String(list[0].track_number).trim() : '';
+}
+
+// Riders checked "Racing for a national team" on this national's RSVP.
+async function nationalTeamIds(day) {
+  if (!day?.national) return [];
+  const re = new RegExp(day.match || '$^', 'i');
+  const days = allDays().filter(d => d.race === day.race).map(d => d.date);
+  const from = days[0], to = days[days.length - 1];
+  // Same pick as the RSVP page: the first RSVP task for the event.
+  const task = (await listSection(SEC_RSVPS)).find(t => re.test(t.name)
+    && (!t.fields.EVENT_DATE || (t.fields.EVENT_DATE >= from && t.fields.EVENT_DATE <= to)));
+  if (!task) return [];
+  return Object.entries(task.fields)
+    .filter(([k, v]) => /^NATTEAM_\d+$/.test(k) && String(v).toLowerCase() === 'yes')
+    .map(([k]) => k.slice(8));
+}
+
+// Race weekends Michelle archived: hidden from the day picker, nothing deleted.
+async function readSettings(dayTasks) {
+  const t = dayTasks.find(x => x.name === 'RACEDAY: SETTINGS');
+  return { task: t || null, archived: new Set(String(t?.fields.ARCHIVED || '').split(',').map(x => x.trim()).filter(Boolean)) };
+}
+
+/* ---------- session + asana helpers (same scheme as api/asana.js) ---------- */
+
+const signSession = gid =>
+  crypto.createHmac('sha256', SECRET).update(`sess:${gid}`).digest('hex');
+
+function verifySession(gid, sig) {
+  if (!gid || !sig) return false;
+  const a = Buffer.from(String(sig));
+  const b = Buffer.from(signSession(gid));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+async function asanaRaw(path, opts = {}, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${ASANA}${path}`, {
+        ...opts,
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          'Content-Type': 'application/json',
+          ...(opts.headers || {}),
+        },
+      });
+      if (res.status === 429) {
+        const wait = parseInt(res.headers.get('Retry-After') || '2', 10) * 1000;
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.errors?.[0]?.message || `Asana ${res.status}`);
+      return json;
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+}
+const asana = async (path, opts, retries) => (await asanaRaw(path, opts, retries)).data;
+
+function parseNotes(notes = '') {
+  const out = {};
+  for (const line of notes.split('\n')) {
+    const idx = line.indexOf(':');
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    if (!/^[A-Z0-9_]+$/.test(key)) continue;
+    out[key] = line.slice(idx + 1).trim();
+  }
+  return out;
+}
+
+const buildNotes = f => Object.entries(f)
+  .filter(([, v]) => v !== undefined && v !== null)
+  .map(([k, v]) => `${k}: ${v}`).join('\n');
+
+async function listSection(sectionGid) {
+  const tasks = await asana(
+    `/sections/${sectionGid}/tasks?opt_fields=name,notes,completed&limit=100`);
+  return (tasks || []).map(t => ({
+    gid: t.gid, name: t.name, completed: t.completed,
+    fields: parseNotes(t.notes || ''),
+  }));
+}
+
+async function getTask(gid) {
+  const t = await asana(`/tasks/${gid}?opt_fields=projects,notes,name`);
+  if (!(t.projects || []).some(p => p.gid === PROJECT_GID)) {
+    throw new Error('Task is outside the Team Hub project');
+  }
+  return { gid: t.gid, name: t.name, fields: parseNotes(t.notes || '') };
+}
+
+async function patchTask(gid, updates) {
+  const t = await getTask(gid);
+  const merged = { ...t.fields, ...updates };
+  await asana(`/tasks/${gid}`, {
+    method: 'PUT',
+    body: JSON.stringify({ data: { notes: buildNotes(merged) } }),
+  });
+  return merged;
+}
+
+const titleCase = s => String(s || '').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+const jparse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
+const jline = v => JSON.stringify(v).replace(/\n/g, ' ');
+
+let rdSectionGid = process.env.SEC_RACEDAY || null;
+async function raceDaySection() {
+  if (rdSectionGid) return rdSectionGid;
+  const secs = await asana(`/projects/${PROJECT_GID}/sections?opt_fields=name`);
+  const hit = (secs || []).find(s => s.name.trim().toLowerCase() === RD_SECTION_NAME.toLowerCase());
+  if (hit) return (rdSectionGid = hit.gid);
+  const made = await asana(`/projects/${PROJECT_GID}/sections`, {
+    method: 'POST', body: JSON.stringify({ data: { name: RD_SECTION_NAME } }),
+  });
+  return (rdSectionGid = made.gid);
+}
+
+// One record per race day. If two taps ever create two at the same moment,
+// everyone uses the one holding motos or final scores (oldest first if both or
+// neither do) and a brand new copy is removed.
+const gidLess = (a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+const dayWeight = t => (t.fields?.FINAL_JSON ? 2 : 0) + (t.fields?.MOTOS_JSON ? 1 : 0);
+function pickDay(tasks, key) {
+  return tasks.filter(t => t.name === `RACEDAY: ${key}`)
+    .sort((a, b) => dayWeight(b) - dayWeight(a) || gidLess(a.gid, b.gid))[0] || null;
+}
+
+async function findDayTask(key, create) {
+  const sec = await raceDaySection();
+  const hit = pickDay(await listSection(sec), key);
+  if (hit || !create) return hit;
+  const task = await asana('/tasks', {
+    method: 'POST',
+    body: JSON.stringify({ data: { name: `RACEDAY: ${key}`, notes: buildNotes({ DAY_KEY: key }), projects: [PROJECT_GID] } }),
+  });
+  await asana(`/sections/${sec}/addTask`, { method: 'POST', body: JSON.stringify({ data: { task: task.gid } }) });
+  // Another request may have created the same day a moment ago: keep the oldest.
+  const first = pickDay(await listSection(sec), key);
+  if (first && first.gid !== task.gid) {
+    try { await asana(`/tasks/${task.gid}`, { method: 'DELETE' }); } catch { /* the oldest still wins */ }
+    return first;
+  }
+  return { gid: task.gid, name: `RACEDAY: ${key}`, fields: { DAY_KEY: key } };
+}
+
+// All comments on the race day task, oldest first.
+async function readLogs(taskGid) {
+  const logs = {}, acks = {};
+  let path = `/tasks/${taskGid}/stories?opt_fields=text,created_at,resource_subtype&limit=100`;
+  for (let page = 0; page < 30 && path; page++) {
+    const json = await asanaRaw(path);
+    for (const s of json.data || []) {
+      if (s.resource_subtype !== 'comment_added' || !(s.text || '').startsWith(LOG_PREFIX)) continue;
+      const e = jparse(s.text.slice(LOG_PREFIX.length), null);
+      if (!e || !e.k) continue;
+      if (e.ack !== undefined) acks[e.k] = e.ack;
+      else logs[e.k] = { v: e.v || {}, by: e.n || '', at: s.created_at };
+    }
+    const next = json.next_page?.offset;
+    path = next ? `/tasks/${taskGid}/stories?opt_fields=text,created_at,resource_subtype&limit=100&offset=${next}` : null;
+  }
+  return { logs, acks };
+}
+
+async function addLog(taskGid, entry) {
+  await asana(`/tasks/${taskGid}/stories`, {
+    method: 'POST', body: JSON.stringify({ data: { text: LOG_PREFIX + JSON.stringify(entry) } }),
+  });
+}
+
+/* ---------- feed parsing (pure; tested against the May 2026 State Champs feed) ---------- */
+// FEED-PARSER-START
+const normName = s => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+
+function raceType(cls) {
+  // The live site writes Cruiser out or shortens it: "9 Cruiser", "17-20 Cr", "46-50 W Cr".
+  if (/cruiser|\bcr\b/i.test(cls)) return 'cruiser';
+  if (/mix|open|pro-?am/i.test(cls)) return 'open';
+  return 'class';
+}
+
+function classCode(cls) {
+  const s = String(cls || '').trim();
+  if (/pro-?am/i.test(s)) return 'pro-am';
+  const age = (s.match(/^[\d+\-]+\+?/) || [''])[0];
+  const rest = s.slice(age.length).toLowerCase();
+  const girl = /girl|\bw\b|women/.test(rest);
+  let suf = '';
+  if (/pro-?am/.test(rest)) suf = 'pa';
+  else if (/cruiser|\bcr\b/.test(rest)) suf = 'c';
+  else if (/mix/.test(rest)) suf = 'mix';
+  else if (/open/.test(rest)) suf = 'o';
+  else if (/nov/.test(rest)) suf = 'n';
+  else if (/int/.test(rest)) suf = 'i';
+  else if (/ex/.test(rest)) suf = 'x';
+  if (!age) return s.toLowerCase().replace(/\s+/g, '');
+  return age + (girl ? 'g' : '') + suf;
+}
+
+const transferN = desc => parseInt((String(desc).match(/(\d+)\s*To\b/i) || [])[1] || '0', 10);
+const numSort = (a, b) => (parseInt(a, 10) - parseInt(b, 10)) || String(a).localeCompare(String(b));
+const roundKey = { Qtr: 'Q', Semi: 'S', Main: 'M' };
+
+/* riders: [{id, name, serial}] from the Team Hub. Returns entries + feed results. */
+function parseFeed(feed, riders, opts = {}) {
+  const taken = new Set(opts.taken || []);
+  const all = Object.values(feed.races || {}).sort((a, b) => (a.order || 0) - (b.order || 0));
+  if (!all.length) return { error: 'No races in the live feed yet.' };
+  // A race already loaded for another day (Saturday) is never this day's race.
+  const races = all.filter(r => !taken.has(r.id));
+  if (!races.length) {
+    return { error: `This day's motos aren't posted yet. The live site only has ${String(all[all.length - 1].name || 'the last race').trim()}, which is already loaded for the other day.` };
+  }
+  let race = opts.raceId ? races.find(r => r.id === opts.raceId) : null;
+  if (!race && races.length > 1 && opts.day && opts.national) {
+    // Nationals: Friday, Saturday, Sunday are races 1, 2, 3.
+    const word = { FRI: /\bfri|#\s*1\b|\b(race|day)\s*1\b/i, SAT: /\bsat|#\s*2\b|\b(race|day)\s*2\b/i,
+                   SUN: /\bsun|#\s*3\b|\b(race|day)\s*3\b/i }[opts.day];
+    race = races.find(r => word && word.test(r.name || '')) || races[0];
+  } else if (!race && races.length > 1 && opts.day) {
+    // The live site reorders races (day 2 can come first), so go by name: "#1" / "#2", Sat / Sun.
+    const word = opts.day === 'SAT' ? /\bsat|#\s*1\b|\b(race|day)\s*1\b/i : /\bsun|#\s*2\b|\b(race|day)\s*2\b/i;
+    race = races.find(r => word.test(r.name || '')) || races[opts.day === 'SAT' ? 0 : 1];
+  }
+  race = race || races[0];
+
+  const bySerial = {}, byName = {};
+  for (const r of riders) {
+    if (r.serial) bySerial[String(r.serial).trim()] = r;
+    byName[normName(r.name)] = r;
+  }
+
+  const acById = {};
+  for (const [name, ac] of Object.entries(race.ageclasses || {})) {
+    acById[ac.id] = { name, rounds: (ac.rounds || []).map(o => Object.values(o)[0]).filter(Boolean) };
+  }
+
+  const roundMotos = {}; // acId -> roundName -> [moto numbers]
+  const present = {};   // acId -> roundName -> Set(serial)
+  const hits = {};      // riderId|acId -> {rider, acId, groups: {round: [{mg, r}]}}
+  for (const mg of Object.values(race.motogroups || {})) {
+    const rname = Object.keys(mg.round || {})[0] || 'Moto';
+    const acId = mg.ageclass_id;
+    if (!acById[acId]) continue;
+    // Every moto posted for each class round, riders listed yet or not.
+    ((roundMotos[acId] = roundMotos[acId] || {})[rname] = roundMotos[acId][rname] || []).push(mg.name);
+    for (const r of Object.values(mg.riders || {})) {
+      const serial = String(r.serial_number || '').trim();
+      ((present[acId] = present[acId] || {})[rname] = present[acId][rname] || new Set()).add(serial);
+      let rider = bySerial[serial] || byName[normName(`${r.first_name}${r.last_name}`)];
+      if (!rider && /next\s*level/i.test(r.sponsor || '')) {
+        const nm = `${r.first_name} ${r.last_name}`.trim().toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+        rider = { id: `x${serial}`, name: nm, serial, guest: true };
+        bySerial[serial] = rider;
+      }
+      if (!rider) continue;
+      const hk = `${rider.id}|${acId}`;
+      const h = hits[hk] = hits[hk] || { rider, acId, serial, groups: {} };
+      (h.groups[rname] = h.groups[rname] || []).push({ mg, r });
+    }
+  }
+
+  // A rider's age class (14 Expert) comes before an extra class-type race the
+  // same day (F Men, F Women at nationals), whatever order the live site lists them.
+  const isAge = h => /^\d/.test(classCode(acById[h.acId].name));
+  const ordered = Object.values(hits).map((h, i) => [h, i])
+    .sort((a, b) => (raceType(acById[a[0].acId].name) === 'class' && !isAge(a[0]) ? 1 : 0)
+      - (raceType(acById[b[0].acId].name) === 'class' && !isAge(b[0]) ? 1 : 0) || a[1] - b[1])
+    .map(x => x[0]);
+
+  const entries = {}, results = {};
+  for (const h of ordered) {
+    const ac = acById[h.acId];
+    let type = raceType(ac.name);
+    const motoRound = ac.rounds.find(x => x.name === 'Moto') || ac.rounds[0] || {};
+    const order = ac.rounds.map(x => x.name);
+    const nextOf = name => order[order.indexOf(name) + 1];
+    const posted = name => !!(name && present[h.acId]?.[name]?.size);
+    const inRound = name => !!(name && present[h.acId]?.[name]?.has(h.serial));
+
+    const e = entries[h.rider.id] = entries[h.rider.id] ||
+      { id: h.rider.id, name: h.rider.name, guest: !!h.rider.guest, races: {} };
+    // Second class-type race the same day: it takes the Open slot when that's free.
+    if (e.races[type] && type === 'class' && !e.races.open) type = 'open';
+    if (e.races[type]) continue; // two classes of the same type in one day: keep the first
+
+    const motos = (h.groups.Moto || []).sort((a, b) => numSort(a.mg.name, b.mg.name));
+    const lane = i => motos.map(x => Number(x.r[`lane_${i}`]) || 0).find(Boolean) || 0;
+    const fin = i => motos.map(x => x.r[`finish_${i}`]).map(v => parseInt(v, 10)).find(n => n > 0) || 0;
+    const rule = motoRound.transfer_description || '';
+    const tp = /^total points/i.test(rule);
+    const rc = {
+      cls: ac.name, code: classCode(ac.name), rule, tp,
+      count: motoRound.rider_count || 0,
+      num: motos.map(x => x.mg.name).join(' · '),
+      gates: [lane(1), lane(2), lane(3)],
+    };
+    // Later rounds: real moto number once posted, a placeholder before that.
+    for (const rn of order.slice(order.indexOf('Moto') + 1)) {
+      const k = roundKey[rn];
+      if (!k) continue;
+      const g = (h.groups[rn] || [])[0];
+      // Not placed in that round yet: still show the class's posted moto number(s).
+      const all = [...new Set(roundMotos[h.acId]?.[rn] || [])].sort(numSort);
+      rc[k] = g ? { num: g.mg.name, gate: Number(g.r.lane_1) || 0 } : { num: all.join('/'), gate: 0 };
+    }
+    e.races[type] = rc;
+
+    // Results the live site has for this rider.
+    const id = h.rider.id;
+    const nextMoto = nextOf('Moto');
+    const mres = {};
+    // Small classes (8 or fewer) can have the main posted before anyone races,
+    // so being in the next round only means a transfer once motos have results.
+    const roundRun = n => motos.some(x => Object.values(x.mg.riders || {}).some(o => parseInt(o[`finish_${n}`], 10) > 0));
+    if (tp) {
+      mres.p1 = fin(1); mres.p2 = fin(2); mres.p3 = fin(3);
+      // Plain "Total Points": the whole class races the main, so there is no transfer.
+      const tpAll = !/\bto\b/i.test(rule);
+      if (!tpAll && posted(nextMoto) && (mres.p1 || mres.p2 || mres.p3)) mres.out = inRound(nextMoto) ? 'T' : 'OUT';
+    } else if (motos.length) {
+      const rd2Run = roundRun(2);
+      if (fin(1)) mres.out = 'T1';
+      else if (fin(2)) mres.out = 'T2';
+      else if (inRound(nextMoto) && roundRun(1)) mres.out = 'T';
+      else if ((posted(nextMoto) && roundRun(1)) || rd2Run) mres.out = 'OUT';
+      else if (roundRun(1)) mres.out = 'R2'; // raced round 1 without transferring
+    }
+    if (mres.out || mres.p1) results[`${id}|${type}`] = mres;
+
+    for (const rn of ['Qtr', 'Semi']) {
+      const g = (h.groups[rn] || [])[0];
+      if (!g) continue;
+      const nx = nextOf(rn);
+      const f = parseInt(g.r.finish_1, 10) || 0;
+      const roundInfo = ac.rounds.find(x => x.name === rn) || {};
+      let out = '';
+      if (posted(nx)) out = inRound(nx) ? 'T' : 'OUT';
+      else if (f) out = f <= (transferN(roundInfo.transfer_description) || 4) ? 'T' : 'OUT';
+      if (out) results[`${id}|${type}${roundKey[rn]}`] = { out };
+    }
+    const mg = (h.groups.Main || [])[0];
+    const mf = mg ? parseInt(mg.r.finish_1, 10) || 0 : 0;
+    if (mf) results[`${id}|${type}M`] = { p1: mf };
+  }
+
+  return {
+    eventName: feed.event_name || '', publishAt: feed.publish_at || '', publishUntil: feed.publish_until || '',
+    raceId: race.id, raceName: (race.name || '').trim(),
+    races: races.map(r => ({ id: r.id, name: (r.name || '').trim() })),
+    entries, results,
+  };
+}
+// FEED-PARSER-END
+
+/* ---------- roles ---------- */
+
+async function whoAmI(gid, session) {
+  if (!verifySession(gid, session)) { const e = new Error('Session invalid.'); e.code = 401; throw e; }
+  const me = await getTask(gid);
+  return {
+    gid, name: me.name,
+    admin: (me.fields.IS_ADMIN || '').toLowerCase() === 'true',
+    helper: (me.fields.RACE_HELPER || '').toLowerCase() === 'true',
+  };
+}
+const deny = msg => { const e = new Error(msg); e.code = 403; return e; };
+
+const TYPES = ['open', 'cruiser', 'class'];
+const cleanTypes = arr => TYPES.filter(t => (arr || []).map(x => String(x).toLowerCase()).includes(t));
+const KEY_RE = /^[x0-9]+\|(open|cruiser|class)[QSM]?$/;
+
+function cleanValue(v = {}) {
+  const out = {};
+  if (['T', 'T1', 'T2', 'R2', 'OUT'].includes(v.out)) out.out = v.out;
+  for (const p of ['p1', 'p2', 'p3']) {
+    const n = parseInt(v[p], 10);
+    if (n >= 1 && n <= 8) out[p] = n;
+  }
+  return out;
+}
+
+/* ---------- handler ---------- */
+
+export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!TOKEN) return res.status(500).json({ error: 'ASANA_TOKEN is not configured.' });
+  const body = req.body || {};
+  const action = body.action || req.query.action || '';
+
+  try {
+    const me = await whoAmI(body.gid, body.session);
+    const days = allDays();
+    // The day list and archive only matter when no day was picked.
+    let preTasks = null, settings = null;
+    if (!days.some(d => d.key === body.day) && body.day !== TEST_DAY.key) {
+      preTasks = await listSection(await raceDaySection());
+      settings = await readSettings(preTasks);
+    }
+    const dayKey = body.day === TEST_DAY.key && me.admin ? TEST_DAY.key
+      : (days.some(d => d.key === body.day) ? body.day : defaultDayKey(settings?.archived));
+    const day = dayKey === TEST_DAY.key ? TEST_DAY : days.find(d => d.key === dayKey);
+
+    switch (action) {
+
+      case 'state': {
+        const dayTasks = preTasks || await listSection(await raceDaySection());
+        const { archived } = settings || await readSettings(dayTasks);
+        const task = pickDay(dayTasks, dayKey);
+        const f = task?.fields || {};
+        // Finalized days before this one, oldest first: this season's state days
+        // for a state day, other nationals for a national day.
+        const { rows: history, days: finalDays } = seasonHistory(dayTasks, dayKey);
+        const { logs, acks } = task ? await readLogs(task.gid) : { logs: {}, acks: {} };
+        const tagged = days.map(d => (archived.has(d.race) ? { ...d, archived: true } : d));
+        const out = {
+          me: { admin: me.admin, helper: me.helper || me.admin },
+          // Parents never see archived race weekends.
+          days: me.admin ? [...tagged, TEST_DAY] : tagged.filter(d => !d.archived || d.key === dayKey),
+          day: archived.has(day.race) ? { ...day, archived: true } : day,
+          natTeam: day.national ? await nationalTeamIds(day) : [],
+          loaded: !!f.MOTOS_JSON,
+          entries: jparse(f.MOTOS_JSON, {}),
+          feed: jparse(f.FEED_JSON, {}),
+          logs, acks,
+        };
+        if (me.admin || me.helper) {
+          out.updated = f.UPDATED || '';
+          out.eventName = f.EVENT_NAME || '';
+          out.feedTrack = f.FEED_TRACK || '';
+        }
+        if (me.admin) {
+          const riders = await listSection(SEC_RIDERS);
+          out.picks = jparse(f.PICKS_JSON, { s1: [], s2: [] });
+          out.locked = (f.LOCKED || '').toLowerCase() === 'true';
+          out.dayClasses = jparse(f.CLASSES_JSON, {});
+          // Pick predictions: this season's finalized days.
+          out.historyDays = finalDays;
+          out.final = jparse(f.FINAL_JSON, null);
+          out.history = history;
+          out.roster = riders
+            .filter(r => r.fields.RACE_CLASSES !== undefined || DEFAULT_CLASSES[r.gid])
+            .map(r => ({
+              id: r.gid, name: r.name,
+              proficiency: r.fields.PROFICIENCY || '',
+              dob: r.fields.DOB || '',
+              classes: cleanTypes(String(r.fields.RACE_CLASSES ?? DEFAULT_CLASSES[r.gid] ?? '').split(',')),
+            }));
+        }
+        return res.json(out);
+      }
+
+      case 'update': {
+        if (!me.admin && !me.helper) throw deny('Only Michelle and Race Day helpers can load motos.');
+        // The phone sends the feed when the USA BMX site will not answer the server.
+        let feed = body.feed && typeof body.feed === 'object' ? body.feed : null;
+        const pre = await findDayTask(dayKey, true);
+        const hdrs = { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (NextLevelBMX TeamHub)' } };
+        const blocked = () => res.status(502).json({
+          error: 'The USA BMX live site did not answer the server.', feedBlocked: true,
+          national: !!day.national, match: day.match || '', track: pre.fields.FEED_TRACK || '',
+        });
+        // Nationals have their own motoboard number: the saved one, else look it up.
+        let track = '';
+        if (day.national) {
+          track = String(body.track || pre.fields.FEED_TRACK || '').replace(/\D/g, '');
+          if (!feed && !track) {
+            let ar = null;
+            try { ar = await fetch(ACTIVE_EVENTS_URL, hdrs); } catch { ar = null; }
+            if (!ar || !ar.ok) return blocked();
+            track = pickNational((await ar.json()).events, day.match, day.day);
+          }
+          if (!track) {
+            return res.status(409).json({ error: `${titleCase(day.race)} motos aren't on the USA BMX live site yet. Once they post, they show under USA BMX EVENTS on usabmx.com/events/motoboards. An admin can also paste that link with the MOTOBOARD LINK button.` });
+          }
+        }
+        if (!feed) {
+          let fr = null;
+          try { fr = await fetch(day.national ? NAT_FEED(track) : FEED_URL, hdrs); }
+          catch { fr = null; }
+          if (!fr || !fr.ok) return blocked();
+          feed = await fr.json();
+        }
+        if (!feed.races) return res.status(409).json({ error: 'The USA BMX live site has no motos posted right now.' });
+        if (!day.test && feed.publish_until) {
+          const until = new Date(feed.publish_until);
+          if (until < new Date(`${day.date}T00:00:00-05:00`)) {
+            return res.status(409).json({
+              error: `Motos for this race aren't posted yet. The live site still shows ${String(feed.event_name || 'the last race').trim()}.`,
+            });
+          }
+        }
+        const task = pre;
+        const riders = (await listSection(SEC_RIDERS)).map(r => ({
+          id: r.gid, name: r.name, serial: r.fields.USABMX || '',
+        }));
+        // Races already loaded for the other days of this race weekend.
+        const taken = (await listSection(await raceDaySection()))
+          .filter(t => t.gid !== task.gid && (t.fields.DAY_KEY || '').split('|')[0] === day.race && t.fields.FEED_RACE)
+          .map(t => t.fields.FEED_RACE);
+        const parsed = parseFeed(feed, riders, { day: day.day, national: !!day.national, raceId: body.raceId || task.fields.FEED_RACE || '', taken });
+        if (parsed.error) return res.status(409).json({ error: parsed.error });
+        const now = new Date().toISOString();
+        await patchTask(task.gid, {
+          MOTOS_JSON: jline(parsed.entries),
+          FEED_JSON: jline(parsed.results),
+          UPDATED: now,
+          EVENT_NAME: `${parsed.eventName} · ${parsed.raceName}`.replace(/\s+/g, ' '),
+          FEED_RACE: parsed.raceId,
+          ...(day.national && track ? { FEED_TRACK: track } : {}),
+        });
+        return res.json({
+          ok: true, updated: now, riders: Object.keys(parsed.entries).length,
+          races: parsed.races, raceId: parsed.raceId,
+        });
+      }
+
+      case 'log':
+      case 'ack': {
+        const { key } = body;
+        if (!KEY_RE.test(String(key || ''))) return res.status(400).json({ error: 'Bad race key.' });
+        const task = await findDayTask(dayKey, false);
+        if (!task) return res.status(409).json({ error: 'Motos are not loaded for this day yet.' });
+        const entry = action === 'log'
+          ? { k: key, v: cleanValue(body.value), n: me.name }
+          : { k: key, ack: jline(cleanValue(body.live)), n: me.name };
+        await addLog(task.gid, entry);
+        return res.json({ ok: true });
+      }
+
+      case 'picks': {
+        if (!me.admin) throw deny('Admins only.');
+        const task = await findDayTask(dayKey, true);
+        if ((task.fields.LOCKED || '').toLowerCase() === 'true') {
+          return res.status(409).json({ error: 'Team sheets are locked for this day. Unlock to change picks.' });
+        }
+        const clean = list => (Array.isArray(list) ? list : []).slice(0, 6)
+          .filter(p => p && /^[x0-9]+$/.test(p.id) && TYPES.includes(p.type))
+          .map(p => ({ id: p.id, type: p.type }));
+        const picks = { s1: clean(body.picks?.s1), s2: clean(body.picks?.s2) };
+        await patchTask(task.gid, { PICKS_JSON: jline(picks) });
+        return res.json({ ok: true, picks });
+      }
+
+      // Freeze the day's team scores as shown on the Team Sheets page (or clear them).
+      case 'finalize': {
+        if (!me.admin) throw deny('Admins only.');
+        const task = await findDayTask(dayKey, true);
+        if (!body.final) {
+          await patchTask(task.gid, { FINAL_JSON: '' });
+          return res.json({ ok: true, final: null });
+        }
+        const STATES = ['scored', 'dnq', 'none', 'nolevel', 'pending'];
+        const num = (v, max) => Math.max(0, Math.min(max, parseInt(v, 10) || 0));
+        const scores = {};
+        for (const [k, v] of Object.entries(body.final.scores || {})) {
+          if (!/^[x0-9]+\|(open|cruiser|class)$/.test(k) || !v) continue;
+          scores[k] = {
+            state: STATES.includes(v.state) ? v.state : 'pending',
+            count: num(v.count, 200), place: num(v.place, 8), fp: num(v.fp, 100), pts: num(v.pts, 400),
+            code: String(v.code || '').slice(0, 20),
+          };
+        }
+        const final = {
+          at: new Date().toISOString(), by: (me.name || '').split(' ')[0],
+          scores, totals: { s1: num(body.final.totals?.s1, 5000), s2: num(body.final.totals?.s2, 5000) },
+          ...(day.national ? { national: true } : {}),
+        };
+        await patchTask(task.gid, { FINAL_JSON: jline(final) });
+        return res.json({ ok: true, final });
+      }
+
+      // Archive a whole race weekend (or bring it back). Nothing is deleted.
+      case 'archive': {
+        if (!me.admin) throw deny('Admins only.');
+        const race = String(body.race || '');
+        if (!SCHEDULE.some(r => r.race === race)) return res.status(400).json({ error: 'Unknown race.' });
+        const sec = await raceDaySection();
+        const tasks = await listSection(sec);
+        let { task, archived } = await readSettings(tasks);
+        if (body.on) archived.add(race); else archived.delete(race);
+        if (!task) {
+          const made = await asana('/tasks', { method: 'POST', body: JSON.stringify({ data: { name: 'RACEDAY: SETTINGS', notes: '', projects: [PROJECT_GID] } }) });
+          await asana(`/sections/${sec}/addTask`, { method: 'POST', body: JSON.stringify({ data: { task: made.gid } }) });
+          task = { gid: made.gid };
+        }
+        await patchTask(task.gid, { ARCHIVED: [...archived].join(',') });
+        return res.json({ ok: true, archived: [...archived] });
+      }
+
+      // Nationals: paste the motoboard link (usabmx.com/events/motoboards/9xxx) by hand.
+      case 'setTrack': {
+        if (!me.admin) throw deny('Admins only.');
+        if (!day.national) return res.status(400).json({ error: 'Only national days use a motoboard link.' });
+        const n = (String(body.track || '').match(/(\d{4,5})\D*$/) || [])[1] || '';
+        const task = await findDayTask(dayKey, true);
+        await patchTask(task.gid, { FEED_TRACK: n });
+        return res.json({ ok: true, track: n });
+      }
+
+      case 'lock': {
+        if (!me.admin) throw deny('Admins only.');
+        const task = await findDayTask(dayKey, true);
+        await patchTask(task.gid, { LOCKED: body.locked ? 'true' : 'false' });
+        return res.json({ ok: true, locked: !!body.locked });
+      }
+
+      case 'classes': {
+        if (!me.admin) throw deny('Admins only.');
+        const { riderId, types, scope } = body;
+        const list = cleanTypes(types);
+        if (scope === 'season') {
+          await patchTask(riderId, { RACE_CLASSES: list.join(',') });
+        } else {
+          const task = await findDayTask(dayKey, true);
+          const dc = jparse(task.fields.CLASSES_JSON, {});
+          dc[riderId] = list;
+          await patchTask(task.gid, { CLASSES_JSON: jline(dc) });
+        }
+        return res.json({ ok: true });
+      }
+
+      case 'helpers': {
+        if (!me.admin) throw deny('Admins only.');
+        const [riders, parents] = await Promise.all([listSection(SEC_RIDERS), listSection(SEC_PARENTS)]);
+        const ids = [...riders, ...parents]
+          .filter(t => (t.fields.RACE_HELPER || '').toLowerCase() === 'true').map(t => t.gid);
+        return res.json({ helpers: ids });
+      }
+
+      case 'setHelper': {
+        if (!me.admin) throw deny('Admins only.');
+        await patchTask(body.targetGid, { RACE_HELPER: body.on ? 'true' : 'false' });
+        return res.json({ ok: true });
+      }
+
+      default:
+        return res.status(400).json({ error: `Unknown action: ${action}` });
+    }
+  } catch (err) {
+    console.error('[raceday]', action, err);
+    return res.status(err.code || 500).json({ error: err.message || 'Server error' });
+  }
+}

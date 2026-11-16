@@ -3909,32 +3909,26 @@ function rdBoardHtml() {
       ${inner}</button>`;
   }
   // Team boxes, one count per rider per class raced today (Next Level riders only).
-  let r1 = 0, r1Of = 0, mains = 0, raced = 0, better = 0, betterOf = 0;
+  let mains = 0, raced = 0, pods = 0, wins = 0;
   for (const e of riders) {
     if (rdNat(e.id)) continue;
     const cells = rdCells(e);
     for (const t of RD_TYPES) {
       if (!cells[t]) continue;
       raced++;
-      const mv = rdEff(`${e.id}|${t}`).r;
-      if (!cells[t].tp) { r1Of++; if (mv.out === 'T1') r1++; }
-      const inMain = !!cells[t + 'M'] && rdQualified(e.id, cells, t + 'M');
-      if (inMain) mains++;
-      // Improved on their last race in this class: better main place, or a main after a DNQ.
-      const prev = (d.last || {})[`${e.id}|${t}`];
-      if (prev) {
-        betterOf++;
-        const place = inMain ? (rdEff(`${e.id}|${t}M`).r.p1 || 0) : 0;
-        if (place && (!prev[1] || place < prev[1])) better++;
-      }
+      if (!(cells[t + 'M'] && rdQualified(e.id, cells, t + 'M'))) continue;
+      mains++;
+      const place = rdEff(`${e.id}|${t}M`).r.p1 || 0;
+      if (place && place <= 3) pods++;
+      if (place === 1) wins++;
     }
   }
   return `<div class="rd-stats">
-      <div class="rd-stat g"><small>RD 1 TRANSFERS</small><b>${r1}<i> / ${r1Of}</i></b></div>
-      <div class="rd-stat"><small>MAINS MADE</small><b>${mains}<i> / ${raced}</i></b></div>
-      <div class="rd-stat"><small>IMPROVED</small><b>${better}<i> / ${betterOf}</i></b></div>
+      <div class="rd-stat g"><small>MAINS MADE</small><b>${mains}<i> / ${raced}</i></b></div>
+      <div class="rd-stat"><small>PODIUMS</small><b>${pods}<i> / ${mains}</i></b></div>
+      <div class="rd-stat"><small>1ST PLACES</small><b>${wins}<i> / ${mains}</i></b></div>
     </div>
-    ${d.day?.national ? `<div class="rd-note">Counts are Next Level riders only. IMPROVED compares to their last national.</div>` : ''}
+    ${d.day?.national ? `<div class="rd-note">Counts are Next Level riders only.</div>` : ''}
     <div class="rd-cols"><span></span><span>MOTO</span><span>QTR / SEMI</span><span>MAIN</span></div>
     <div class="rd-list">${cards || '<div class="rd-wait">No team motos found for this day.</div>'}</div>`;
 }
@@ -4183,9 +4177,31 @@ async function rdFlipClass(id, type) {
 
 /* ---- ADMIN: pick predictions ----
    Expected points = chance of making the main x (rider count + expected main points).
-   Built from last season's tracker plus this season's finished days, recent races
-   weighted heavier. A rider who moved up an age group or level since their last
-   race in that class is flagged and their history counts for less. */
+   Built from this season's finalized state days only (nationals never count),
+   newest races weighted heavier. A rider who moved up an age group or level since
+   their last race in that class is flagged and their history counts for less.
+   Before motos post, the rider count is that class's average size this season. */
+const rdNorm = c => String(c || '').toLowerCase().replace(/\s+/g, '');
+// Average start-of-day size of each class this season, one count per class per day.
+function rdClassSizes() {
+  const d = S.rd.data;
+  if (d._sizes && d._sizes.src === d.history) return d._sizes.map;
+  const seen = {}, sum = {}, n = {};
+  for (const types of Object.values(d.history || {})) {
+    for (const rows of Object.values(types)) {
+      for (const [count, , code, day] of rows) {
+        const c = rdNorm(code);
+        if (!c || !count || seen[`${day}|${c}`]) continue;
+        seen[`${day}|${c}`] = 1;
+        sum[c] = (sum[c] || 0) + count; n[c] = (n[c] || 0) + 1;
+      }
+    }
+  }
+  const map = {};
+  for (const c of Object.keys(sum)) map[c] = sum[c] / n[c];
+  d._sizes = { src: d.history, map };
+  return map;
+}
 const rdBand = code => {
   const m = String(code || '').match(/(\d+)(?:\s*-\s*(\d+))?/);
   return m ? [Number(m[1]), Number(m[2] || m[1])] : null;
@@ -4232,10 +4248,8 @@ function rdMoveUp(id, type, rows) {
 function rdPredict(id, type) {
   const d = S.rd.data;
   if (d.loaded && !d.entries[id]?.races[type]) return { exp: 0, none: true };
-  // Oldest to newest. Within last season's tracker, the younger age group came first.
-  const rows = [...((d.history || {})[id]?.[type] || [])]
-    .map((r, i) => ({ r, i, age: (rdBand(r[2]) || [0])[0], lv: { n: 0, i: 1, x: 2, gx: 2 }[rdLvlOf(r[2])] ?? 1 }))
-    .sort((a, b) => a.age - b.age || a.lv - b.lv || a.i - b.i).map(x => x.r);
+  // Oldest to newest, in race-day order (the server sorts them).
+  const rows = [...((d.history || {})[id]?.[type] || [])];
   const mv = rdMoveUp(id, type, rows);
   const code = rdCurrentCode(id, type);
   const rr = (d.roster || []).find(r => r.id === id);
@@ -4251,15 +4265,17 @@ function rdPredict(id, type) {
     w += k; wCount += k * count;
     if (place) { wMain += k; wPts += k * rdTable(lvl)[place]; wPlace += k * place; dist.push([place, k]); }
   });
-  // Few races = lean toward an even chance; a move-up halves what history is worth.
-  const trust = mv ? 0.5 : 1;
-  let pMain = (wMain * trust + 1) / (w * trust + 2);
+  // A light pull toward an even chance: 4 mains in 4 races reads about 95%,
+  // no history reads 50%. A move-up halves what history is worth.
+  const trust = mv ? 0.5 : 1, PRIOR = 0.35;
+  let pMain = (wMain * trust + PRIOR * 0.5) / (w * trust + PRIOR);
   let place = wMain ? wPlace / wMain : 5;
   if (mv) { pMain *= 0.85; place = Math.min(8, place + 1); }
   const fp = !wMain ? rdTable(lvl)[5] : mv ? rdTable(lvl)[Math.round(place)] : wPts / wMain;
   const dnq = rdDnqPts(lvl);
   const real = d.entries?.[id]?.races?.[type]?.count;
-  const count = real || (w ? Math.round(wCount / w) : 10);
+  const size = rdClassSizes()[rdNorm(code)];
+  const count = real || Math.round(size || (w ? wCount / w : 10));
   // Where they finish when they make the main (used to simulate a sheet's best 4).
   const places = dist.length
     ? dist.map(([pl, k]) => [Math.min(8, pl + (mv ? 1 : 0)), k])
@@ -4400,7 +4416,7 @@ function rdAdminHtml() {
     <div class="rd-finnote">${fin
       ? `<b>FINAL</b> · saved ${esc(rdTime(fin.at))}${fin.by ? ` by ${esc(fin.by)}` : ''}. Scores no longer change.`
       : d.loaded ? 'Scores are live. Finalize once every main is in.' : 'Scores fill in once motos load and mains are logged.'}</div>
-    <div class="rd-finnote">Predictions use: last season${incl.length ? ' + ' + incl.map(esc).join(', ') : ' (no finalized days yet)'}${
+    <div class="rd-finnote">Predictions use: ${incl.length ? incl.map(esc).join(', ') : 'no finalized days yet (everyone shows an even chance)'}${
       S.rd.predAt ? ` · updated ${esc(rdTime(S.rd.predAt))}` : ''}</div>
   </div>
   <div class="rd-sheets">
